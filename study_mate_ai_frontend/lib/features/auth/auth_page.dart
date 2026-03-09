@@ -12,8 +12,7 @@ class AuthPage extends StatefulWidget {
   State<AuthPage> createState() => _AuthPageState();
 }
 
-class _AuthPageState extends State<AuthPage>
-    with SingleTickerProviderStateMixin {
+class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
   bool _loading = false;
@@ -30,7 +29,7 @@ class _AuthPageState extends State<AuthPage>
   @override
   void initState() {
     super.initState();
-    _repo = AuthRepository(); // ✅ works without API
+    _repo = AuthRepository(); // ✅ no backend required now
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -46,16 +45,16 @@ class _AuthPageState extends State<AuthPage>
   }
 
   void _goToLogin() => _tabController.animateTo(
-    0,
-    duration: const Duration(milliseconds: 350),
-    curve: Curves.easeInOut,
-  );
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
 
   void _goToSignup() => _tabController.animateTo(
-    1,
-    duration: const Duration(milliseconds: 350),
-    curve: Curves.easeInOut,
-  );
+        1,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
 
   Future<void> _handleLogin() async {
     setState(() => _loading = true);
@@ -67,19 +66,18 @@ class _AuthPageState extends State<AuthPage>
 
       if (!mounted) return;
 
-      // Show message first (optional)
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Logged in (UI ready)")));
-
-      // Replace auth page with home (recommended)
+      // ✅ GO to Home
       context.go(AppRoutes.home);
+
+      // Optional feedback (might not show after navigation, that's ok)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Logged in (UI ready)")),
+      );
     } catch (e) {
-      debugPrint("LOGIN ERROR: $e");
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Login failed: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Login failed: $e")),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -95,17 +93,17 @@ class _AuthPageState extends State<AuthPage>
       );
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Account created (UI ready)")),
       );
 
-      // Smoothly back to login
       _goToLogin();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Signup failed: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Signup failed: $e")),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -175,8 +173,49 @@ class _AuthPageState extends State<AuthPage>
     );
   }
 
+  // ✅ Common bottom section (kept same, but now scrolls safely)
+  Widget _socialAndTerms() {
+    return Column(
+      children: [
+        const SizedBox(height: 18),
+        Row(
+          children: const [
+            Expanded(child: Divider()),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 10),
+              child: Text("or", style: TextStyle(color: AppColors.textSecondary)),
+            ),
+            Expanded(child: Divider()),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              // ✅ WHEN GOOGLE AUTH IS READY:
+              // Use firebase_auth + google_sign_in OR OAuth2 flow.
+            },
+            icon: const Icon(Icons.g_mobiledata),
+            label: const Text("Google"),
+          ),
+        ),
+
+        const SizedBox(height: 14),
+        Text(
+          "By continuing, you agree to our Terms of Service and Privacy Policy.",
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppColors.textSecondary.withOpacity(0.9), fontSize: 12),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final keyboard = MediaQuery.of(context).viewInsets.bottom;
+
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
@@ -187,8 +226,9 @@ class _AuthPageState extends State<AuthPage>
         ),
       ),
       body: SafeArea(
+        // ✅ This padding is the KEY FIX: adds space when keyboard opens
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+          padding: EdgeInsets.fromLTRB(18, 10, 18, 18 + keyboard),
           child: Column(
             children: [
               const SizedBox(height: 10),
@@ -199,11 +239,7 @@ class _AuthPageState extends State<AuthPage>
                   color: AppColors.primary.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Icon(
-                  Icons.auto_awesome,
-                  size: 30,
-                  color: AppColors.primary,
-                ),
+                child: const Icon(Icons.auto_awesome, size: 30, color: AppColors.primary),
               ),
               const SizedBox(height: 14),
 
@@ -219,10 +255,7 @@ class _AuthPageState extends State<AuthPage>
                         child: Text(
                           isLogin ? "Study Smart" : "Create Account",
                           key: ValueKey(isLogin),
-                          style: const TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800),
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -234,9 +267,7 @@ class _AuthPageState extends State<AuthPage>
                               : "Sign up to start using StudyMateAI",
                           key: ValueKey("sub_$isLogin"),
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                          ),
+                          style: const TextStyle(color: AppColors.textSecondary),
                         ),
                       ),
                     ],
@@ -248,92 +279,42 @@ class _AuthPageState extends State<AuthPage>
               _segmentedTabs(),
               const SizedBox(height: 14),
 
-              // ✅ IMPORTANT: TabBarView must be inside Expanded (bounded height)
+              // ✅ IMPORTANT FIX: TabBarView must have bounded height => Expanded
               Expanded(
-                child: AnimatedSize(
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeInOut,
-                  alignment: Alignment.topCenter,
-                  child: TabBarView(
-                    controller: _tabController,
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      // Each page scrolls itself (keyboard friendly)
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: _LoginForm(
+                child: TabBarView(
+                  controller: _tabController,
+                  physics: const BouncingScrollPhysics(),
+                  children: [
+                    // ✅ Now each tab is fully scrollable (so no overflow)
+                    ListView(
+                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: const EdgeInsets.only(top: 6),
+                      children: [
+                        _LoginForm(
                           emailController: _loginEmail,
                           passwordController: _loginPassword,
                           loading: _loading,
                           onLogin: _handleLogin,
-                          onForgotPassword: () =>
-                              context.push(AppRoutes.forgotPassword),
+                          onForgotPassword: () => context.push(AppRoutes.forgotPassword),
                         ),
-                      ),
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: _SignupForm(
+                        _socialAndTerms(),
+                      ],
+                    ),
+                    ListView(
+                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: const EdgeInsets.only(top: 6),
+                      children: [
+                        _SignupForm(
                           nameController: _signupName,
                           emailController: _signupEmail,
                           passwordController: _signupPassword,
                           loading: _loading,
                           onSignup: _handleSignup,
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              // Optional social button row at bottom (kept outside TabBarView)
-              Row(
-                children: const [
-                  Expanded(child: Divider()),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text(
-                      "or",
-                      style: TextStyle(color: AppColors.textSecondary),
+                        _socialAndTerms(),
+                      ],
                     ),
-                  ),
-                  Expanded(child: Divider()),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    // ✅ WHEN GOOGLE AUTH IS READY:
-                  },
-                  icon: const Icon(Icons.g_mobiledata),
-                  label: const Text("Google"),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                      color: Color(0xFFE2E2F0), //
-                      width: 1.5, // border thickness
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12), // rounded border
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 12,
-                      horizontal: 16,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-              Text(
-                "By continuing, you agree to our Terms of Service and Privacy Policy.",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textSecondary.withOpacity(0.9),
-                  fontSize: 12,
+                  ],
                 ),
               ),
             ],
@@ -412,11 +393,7 @@ class _LoginForm extends StatelessWidget {
           child: ElevatedButton(
             onPressed: loading ? null : onLogin,
             child: loading
-                ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text("Sign In"),
           ),
         ),
@@ -447,7 +424,7 @@ class _SignupForm extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            "Email",
+            "FULL NAME",
             style: TextStyle(
               color: AppColors.textSecondary.withOpacity(0.9),
               fontWeight: FontWeight.w700,
@@ -455,7 +432,23 @@ class _SignupForm extends StatelessWidget {
             ),
           ),
         ),
-
+        const SizedBox(height: 8),
+        TextField(
+          controller: nameController,
+          decoration: const InputDecoration(hintText: "Your name"),
+        ),
+        const SizedBox(height: 14),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            "UNIVERSITY EMAIL",
+            style: TextStyle(
+              color: AppColors.textSecondary.withOpacity(0.9),
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: emailController,
@@ -486,11 +479,7 @@ class _SignupForm extends StatelessWidget {
           child: ElevatedButton(
             onPressed: loading ? null : onSignup,
             child: loading
-                ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text("Create Account"),
           ),
         ),

@@ -139,14 +139,16 @@ class _HomePageState extends State<HomePage> {
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondary,
         onTap: (i) {
-          setState(() => _navIndex = i);
-
-          // ✅ WHEN OTHER SCREENS READY:
-          // if (i == 0) context.go(AppRoutes.home);
-          // if (i == 1) context.go('/library');
-          // if (i == 2) context.go('/schedule');
-          // if (i == 3) context.go('/settings');
+          if (i == 0) context.go(AppRoutes.home);
+          if (i == 1) context.go(AppRoutes.library);
+          if (i == 2) {
+            // context.go('/schedule'); (future)
+          }
+          if (i == 3) {
+            // context.go('/settings'); (future)
+          }
         },
+
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),

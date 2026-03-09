@@ -1,10 +1,12 @@
 import 'package:go_router/go_router.dart';
+
 import '../../features/onboarding/landing_page.dart';
 import '../../features/auth/auth_page.dart';
 import '../../features/auth/forgot_password_page.dart';
 import '../../features/home/home_page.dart';
 import '../../features/upload/upload_page.dart';
 import '../../features/goals/add_goal_page.dart';
+import '../../features/notes/notes_library_page.dart'; // ✅ ADD
 
 class AppRoutes {
   static const landing = '/';
@@ -14,6 +16,7 @@ class AppRoutes {
   static const home = '/home';
   static const upload = '/upload';
   static const addGoal = '/add-goal';
+  static const library = '/library'; // ✅ ADD
 
   static final router = GoRouter(
     initialLocation: landing,
@@ -28,6 +31,9 @@ class AppRoutes {
       GoRoute(path: home, builder: (_, __) => const HomePage()),
       GoRoute(path: upload, builder: (_, __) => const UploadPage()),
       GoRoute(path: addGoal, builder: (_, __) => const AddGoalPage()),
+
+      // ✅ THIS is what removes the error
+      GoRoute(path: library, builder: (_, __) => const NotesLibraryPage()),
     ],
   );
 }

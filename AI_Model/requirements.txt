@@ -1,0 +1,12 @@
+transformers
+datasets
+torch
+accelerate
+evaluate
+sentencepiece
+peft
+bitsandbytes
+fastapi
+uvicorn
+pandas
+scikit-learn
