@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/config/routes.dart';
 import '../../core/theme/app_colors.dart';
 import 'data/auth_repository.dart';
+import '../../services/google_sign_in_service.dart'; // adjust path if needed
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
@@ -12,7 +13,8 @@ class AuthPage extends StatefulWidget {
   State<AuthPage> createState() => _AuthPageState();
 }
 
-class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin {
+class _AuthPageState extends State<AuthPage>
+    with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
   bool _loading = false;
@@ -29,7 +31,7 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
-    _repo = AuthRepository(); // ✅ no backend required now
+    _repo = AuthRepository();
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -45,16 +47,16 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
   }
 
   void _goToLogin() => _tabController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeInOut,
-      );
+    0,
+    duration: const Duration(milliseconds: 350),
+    curve: Curves.easeInOut,
+  );
 
   void _goToSignup() => _tabController.animateTo(
-        1,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeInOut,
-      );
+    1,
+    duration: const Duration(milliseconds: 350),
+    curve: Curves.easeInOut,
+  );
 
   Future<void> _handleLogin() async {
     setState(() => _loading = true);
@@ -66,18 +68,16 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
 
       if (!mounted) return;
 
-      // ✅ GO to Home
       context.go(AppRoutes.home);
 
-      // Optional feedback (might not show after navigation, that's ok)
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Logged in (UI ready)")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Logged in (UI ready)")));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Login failed: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Login failed: $e")));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -101,9 +101,33 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
       _goToLogin();
     } catch (e) {
       if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Signup failed: $e")));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _handleGoogleLogin() async {
+    setState(() => _loading = true);
+    try {
+      final idToken = await loginWithGoogle();
+
+      if (!mounted) return;
+
+      debugPrint("Google ID Token: $idToken");
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Signup failed: $e")),
+        const SnackBar(content: Text("Google sign-in successful")),
       );
+
+      context.go(AppRoutes.home);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Google sign-in failed: $e")));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -173,7 +197,6 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     );
   }
 
-  // ✅ Common bottom section (kept same, but now scrolls safely)
   Widget _socialAndTerms() {
     return Column(
       children: [
@@ -183,30 +206,37 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
             Expanded(child: Divider()),
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 10),
-              child: Text("or", style: TextStyle(color: AppColors.textSecondary)),
+              child: Text(
+                "or",
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
             ),
             Expanded(child: Divider()),
           ],
         ),
         const SizedBox(height: 14),
-
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: () {
-              // ✅ WHEN GOOGLE AUTH IS READY:
-              // Use firebase_auth + google_sign_in OR OAuth2 flow.
-            },
+            onPressed: _loading ? null : _handleGoogleLogin,
             icon: const Icon(Icons.g_mobiledata),
-            label: const Text("Google"),
+            label: _loading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text("Google"),
           ),
         ),
-
         const SizedBox(height: 14),
         Text(
           "By continuing, you agree to our Terms of Service and Privacy Policy.",
           textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.textSecondary.withOpacity(0.9), fontSize: 12),
+          style: TextStyle(
+            color: AppColors.textSecondary.withOpacity(0.9),
+            fontSize: 12,
+          ),
         ),
       ],
     );
@@ -226,7 +256,6 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
         ),
       ),
       body: SafeArea(
-        // ✅ This padding is the KEY FIX: adds space when keyboard opens
         child: Padding(
           padding: EdgeInsets.fromLTRB(18, 10, 18, 18 + keyboard),
           child: Column(
@@ -239,11 +268,13 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
                   color: AppColors.primary.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Icon(Icons.auto_awesome, size: 30, color: AppColors.primary),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  size: 30,
+                  color: AppColors.primary,
+                ),
               ),
               const SizedBox(height: 14),
-
-              // Smooth title/subtitle change
               AnimatedBuilder(
                 animation: _tabController,
                 builder: (_, __) {
@@ -255,7 +286,10 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
                         child: Text(
                           isLogin ? "Study Smart" : "Create Account",
                           key: ValueKey(isLogin),
-                          style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800),
+                          style: const TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -267,27 +301,26 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
                               : "Sign up to start using StudyMateAI",
                           key: ValueKey("sub_$isLogin"),
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: AppColors.textSecondary),
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ),
                     ],
                   );
                 },
               ),
-
               const SizedBox(height: 18),
               _segmentedTabs(),
               const SizedBox(height: 14),
-
-              // ✅ IMPORTANT FIX: TabBarView must have bounded height => Expanded
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
                   physics: const BouncingScrollPhysics(),
                   children: [
-                    // ✅ Now each tab is fully scrollable (so no overflow)
                     ListView(
-                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.only(top: 6),
                       children: [
                         _LoginForm(
@@ -295,13 +328,15 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
                           passwordController: _loginPassword,
                           loading: _loading,
                           onLogin: _handleLogin,
-                          onForgotPassword: () => context.push(AppRoutes.forgotPassword),
+                          onForgotPassword: () =>
+                              context.push(AppRoutes.forgotPassword),
                         ),
                         _socialAndTerms(),
                       ],
                     ),
                     ListView(
-                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.only(top: 6),
                       children: [
                         _SignupForm(
@@ -393,7 +428,11 @@ class _LoginForm extends StatelessWidget {
           child: ElevatedButton(
             onPressed: loading ? null : onLogin,
             child: loading
-                ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text("Sign In"),
           ),
         ),
@@ -479,7 +518,11 @@ class _SignupForm extends StatelessWidget {
           child: ElevatedButton(
             onPressed: loading ? null : onSignup,
             child: loading
-                ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text("Create Account"),
           ),
         ),

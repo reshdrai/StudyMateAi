@@ -1,33 +1,52 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
 import '../model/home_summary.dart';
-import '../model/task_item.dart';
-import '../model/ai_tip.dart';
+import '../../../services/token_storage.dart';
+import '../../../services/api_config.dart';
 
 class HomeRepository {
+  String get baseUrl => ApiConfig.baseUrl;
+
   Future<HomeSummary> getHomeSummary() async {
-    // ✅ NO BACKEND NOW: return fake data (works today)
-    await Future.delayed(const Duration(milliseconds: 250));
+    try {
+      final token = await TokenStorage.getToken();
 
-    return HomeSummary(
-      userName: "Alex Johnson",
-      completedTasks: 4,
-      totalTasks: 6,
-      progressText: "66% Done",
-      nextTask: TaskItem(
-        id: "task_1",
-        subjectTag: "ECONOMICS 101",
-        title: "Macroeconomics: Ch. 4 Review",
-        timeLabel: "15:00 - 16:00 (60 min)",
-        description: "Focus on supply and demand curves.",
-        durationMinutes: 60,
-      ),
-      aiTip: AiTip(
-        message:
-            'Based on your recent quizzes, you should spend 15 extra minutes on "Price Elasticity" today to solidify your understanding.',
-      ),
-    );
+      print("========== HOME API CALL ==========");
+      print("BASE URL: $baseUrl");
+      print("TOKEN: $token");
 
-    // ✅ WHEN SPRING BOOT IS READY:
-    // 1) GET /api/home/summary
-    // return await _api.getHomeSummary();
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/api/home/summary'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null && token.isNotEmpty)
+                'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+
+      print("STATUS CODE: ${response.statusCode}");
+      print("RESPONSE BODY: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return HomeSummary.fromJson(decoded);
+        }
+        return HomeSummary.fallback();
+      }
+
+      if (response.statusCode == 401) {
+        print("ERROR: Unauthorized - token missing or invalid");
+        return HomeSummary.fallback();
+      }
+
+      return HomeSummary.fallback();
+    } catch (e) {
+      print("EXCEPTION IN HOME API: $e");
+      return HomeSummary.fallback();
+    }
   }
 }

@@ -6,6 +6,14 @@ import '../../core/theme/app_colors.dart';
 import 'data/home_repository.dart';
 import 'model/home_summary.dart';
 
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../core/config/routes.dart';
+import '../../core/theme/app_colors.dart';
+import 'data/home_repository.dart';
+import 'model/home_summary.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -25,6 +33,13 @@ class _HomePageState extends State<HomePage> {
     _future = _repo.getHomeSummary();
   }
 
+  Future<void> _reload() async {
+    setState(() {
+      _future = _repo.getHomeSummary();
+    });
+    await _future;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -32,123 +47,151 @@ class _HomePageState extends State<HomePage> {
       body: SafeArea(
         child: FutureBuilder<HomeSummary>(
           future: _future,
+          initialData: HomeSummary.fallback(),
           builder: (context, snap) {
-            if (!snap.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final data = snap.data!;
+            final data = snap.data ?? HomeSummary.fallback();
+
             final percent = data.totalTasks == 0
                 ? 0.0
                 : (data.completedTasks / data.totalTasks).clamp(0.0, 1.0);
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-              children: [
-                _Header(userName: data.userName),
-                const SizedBox(height: 16),
-
-                _ProgressCard(
-                  completed: data.completedTasks,
-                  total: data.totalTasks,
-                  percent: percent,
-                  badge: data.progressText,
-                ),
-
-                const SizedBox(height: 18),
-                const Text(
-                  "Quick Actions",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 12),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: _QuickActionCard(
-                        icon: Icons.file_upload_outlined,
-                        label: "Upload",
-                        onTap: () => context.push(AppRoutes.upload),
-                      ),
+            return RefreshIndicator(
+              onRefresh: _reload,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                children: [
+                  if (snap.connectionState == ConnectionState.waiting)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: LinearProgressIndicator(),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _QuickActionCard(
-                        icon: Icons.quiz_outlined,
-                        label: "Quiz Me",
-                        onTap: () {
-                          // ✅ WHEN QUIZ FEATURE READY:
-                          // context.push('/quiz');
+
+                  _Header(userName: data.userName),
+                  const SizedBox(height: 16),
+
+                  _ProgressCard(
+                    completed: data.completedTasks,
+                    total: data.totalTasks,
+                    percent: percent,
+                    badge: data.progressText,
+                  ),
+
+                  const SizedBox(height: 18),
+                  const Text(
+                    "Quick Actions",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _QuickActionCard(
+                          icon: Icons.file_upload_outlined,
+                          label: "Upload",
+                          onTap: () => context.push(AppRoutes.upload),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _QuickActionCard(
+                          icon: Icons.quiz_outlined,
+                          label: "Quiz Me",
+                          onTap: () {
+                            // context.push('/quiz');
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _QuickActionCard(
+                          icon: Icons.add_task_outlined,
+                          label: "Add Goal",
+                          onTap: () => context.push(AppRoutes.addGoal),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Text(
+                        "Next Task",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () {
+                          // context.push('/schedule');
                         },
+                        child: const Text("View Schedule"),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _QuickActionCard(
-                        icon: Icons.add_task_outlined,
-                        label: "Add Goal",
-                        onTap: () => context.push(AppRoutes.addGoal),
+                    ],
+                  ),
+
+                  _NextTaskCard(
+                    tag: data.nextTask.subjectTag,
+                    title: data.nextTask.title,
+                    time: data.nextTask.timeLabel,
+                    description: data.nextTask.description,
+                    onStart: () {
+                      // POST /api/tasks/{id}/start
+                    },
+                  ),
+
+                  const SizedBox(height: 16),
+                  _AiTipCard(message: data.aiTip.message),
+
+                  if (snap.hasError) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.orange.withOpacity(0.25),
+                        ),
+                      ),
+                      child: const Text(
+                        "Could not load latest home data. Showing default data.",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.orange,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
-                ),
-
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    const Text(
-                      "Next Task",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () {
-                        // ✅ WHEN SCHEDULE SCREEN READY:
-                        // context.push('/schedule');
-                      },
-                      child: const Text("View Schedule"),
-                    ),
-                  ],
-                ),
-
-                _NextTaskCard(
-                  tag: data.nextTask.subjectTag,
-                  title: data.nextTask.title,
-                  time: data.nextTask.timeLabel,
-                  description: data.nextTask.description,
-                  onStart: () {
-                    // ✅ WHEN TASK START API READY:
-                    // POST /api/tasks/{id}/start
-                    // context.push('/task/${data.nextTask.id}');
-                  },
-                ),
-
-                const SizedBox(height: 16),
-                _AiTipCard(message: data.aiTip.message),
-              ],
+                ],
+              ),
             );
           },
         ),
       ),
 
-      // Bottom nav (visual only; you can connect later)
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _navIndex,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondary,
         onTap: (i) {
+          setState(() {
+            _navIndex = i;
+          });
+
           if (i == 0) context.go(AppRoutes.home);
           if (i == 1) context.go(AppRoutes.library);
           if (i == 2) {
-            // context.go('/schedule'); (future)
+            // context.go('/schedule');
           }
           if (i == 3) {
-            // context.go('/settings'); (future)
+            // context.go('/settings');
           }
         },
-
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
@@ -197,11 +240,16 @@ class _Header extends StatelessWidget {
           children: [
             Text(
               "Welcome back,",
-              style: TextStyle(color: AppColors.textSecondary.withOpacity(0.9)),
+              style: TextStyle(
+                color: AppColors.textSecondary.withOpacity(0.9),
+              ),
             ),
             Text(
               userName,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
         ),
@@ -225,6 +273,8 @@ class _ProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final remaining = (total - completed) < 0 ? 0 : (total - completed);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -293,7 +343,9 @@ class _ProgressCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  "You're on track! Just ${total - completed} more tasks to hit your daily goal.",
+                  total == 0
+                      ? "No study tasks yet. Add a goal or upload notes to get started."
+                      : "You're on track! Just $remaining more tasks to hit your daily goal.",
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     height: 1.35,
@@ -383,6 +435,8 @@ class _NextTaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasTask = title.trim().toLowerCase() != 'no upcoming task';
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -391,7 +445,6 @@ class _NextTaskCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Image placeholder section
           Container(
             height: 170,
             width: double.infinity,
@@ -399,9 +452,7 @@ class _NextTaskCard extends StatelessWidget {
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(18),
               ),
-              color: const Color(
-                0xFF2F5C55,
-              ), // placeholder like screenshot chart bg
+              color: const Color(0xFF2F5C55),
             ),
             child: Align(
               alignment: Alignment.topLeft,
@@ -442,24 +493,26 @@ class _NextTaskCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.access_time,
-                            size: 16,
-                            color: AppColors.textSecondary,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            time,
-                            style: const TextStyle(
+                      if (time.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.access_time,
+                              size: 16,
                               color: AppColors.textSecondary,
-                              fontWeight: FontWeight.w700,
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
+                            const SizedBox(width: 6),
+                            Text(
+                              time,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                      ],
                       Text(
                         description,
                         style: const TextStyle(color: AppColors.textSecondary),
@@ -469,7 +522,7 @@ class _NextTaskCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton(
-                  onPressed: onStart,
+                  onPressed: hasTask ? onStart : null,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -479,7 +532,7 @@ class _NextTaskCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  child: const Text("Start N..."),
+                  child: Text(hasTask ? "Start Now" : "No Task"),
                 ),
               ],
             ),
@@ -492,6 +545,7 @@ class _NextTaskCard extends StatelessWidget {
 
 class _AiTipCard extends StatelessWidget {
   const _AiTipCard({required this.message});
+
   final String message;
 
   @override

@@ -37,10 +37,15 @@ dependencies:
   go_router: ^17.0.1
   dio: ^5.9.1
   flutter_secure_storage: ^10.0.0
+  google_sign_in: ^7.2.0
+  http: ^1.2.1
+  shared_preferences: ^2.2.3
+  file_picker: ^8.0.0+1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+    
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

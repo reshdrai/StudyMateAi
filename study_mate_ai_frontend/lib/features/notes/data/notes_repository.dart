@@ -1,70 +1,52 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
 import '../model/note_item.dart';
+import '../../../services/token_storage.dart';
+import '../../../services/api_config.dart';
 
 class NotesRepository {
+  String get baseUrl => ApiConfig.baseUrl;
+  // change to your laptop IP if using real device
+
   Future<List<NoteItem>> getNotes({
     required String category,
     required String query,
   }) async {
-    // ✅ Works without backend now
-    await Future.delayed(const Duration(milliseconds: 250));
+    try {
+      final token = await TokenStorage.getToken();
 
-    final all = <NoteItem>[
-      NoteItem(
-        id: "1",
-        title: "Data Structures L3",
-        dateLabel: "Oct 12",
-        type: NoteType.pdf,
-        sizeOrKind: "1.2 MB",
-        status: NoteStatus.aiReady,
-      ),
-      NoteItem(
-        id: "2",
-        title: "Physics Equations",
-        dateLabel: "Oct 10",
-        type: NoteType.image,
-        sizeOrKind: "Image",
-        status: NoteStatus.none,
-      ),
-      NoteItem(
-        id: "3",
-        title: "History Essay Draft",
-        dateLabel: "Oct 08",
-        type: NoteType.text,
-        sizeOrKind: "Text",
-        status: NoteStatus.analyzing,
-      ),
-      NoteItem(
-        id: "4",
-        title: "Macroeconomics Notes",
-        dateLabel: "Oct 05",
-        type: NoteType.pdf,
-        sizeOrKind: "0.8 MB",
-        status: NoteStatus.aiReady,
-      ),
-    ];
+      final uri = Uri.parse(
+        '$baseUrl/api/materials',
+      ).replace(queryParameters: {'category': category, 'q': query});
 
-    // Basic category filter (optional)
-    List<NoteItem> filtered = all;
-    if (category != "All") {
-      final c = category.toLowerCase();
-      filtered = all.where((n) => n.title.toLowerCase().contains(c)).toList();
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null && token.isNotEmpty)
+                'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+
+      print('NOTES STATUS: ${response.statusCode}');
+      print('NOTES BODY: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is List) {
+          return decoded
+              .map((e) => NoteItem.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+      }
+
+      return [];
+    } catch (e) {
+      print('NOTES ERROR: $e');
+      return [];
     }
-
-    // Basic search filter
-    final q = query.trim().toLowerCase();
-    if (q.isNotEmpty) {
-      filtered = filtered
-          .where((n) => n.title.toLowerCase().contains(q))
-          .toList();
-    }
-
-    return filtered;
-
-    // ✅ WHEN SPRING BOOT IS READY:
-    // final res = await ApiClient.instance.dio.get("/api/notes", queryParameters: {
-    //   "category": category,
-    //   "q": query,
-    // });
-    // return (res.data as List).map((e) => NoteItem.fromJson(e)).toList();
   }
 }

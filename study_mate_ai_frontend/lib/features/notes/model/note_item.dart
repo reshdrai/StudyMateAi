@@ -3,11 +3,11 @@ enum NoteStatus { aiReady, analyzing, none }
 enum NoteType { pdf, image, text }
 
 class NoteItem {
-  final String id;
+  final int id;
   final String title;
-  final String dateLabel; // "Oct 12"
+  final String dateLabel;
   final NoteType type;
-  final String sizeOrKind; // "1.2 MB" or "Image" or "Text"
+  final String sizeOrKind;
   final NoteStatus status;
   final String? previewImagePath;
 
@@ -33,7 +33,6 @@ class NoteItem {
   }
 
   String get metaLabel {
-    // screenshot style: "PDF • 1.2 MB" or "JPG • Image"
     final left = type == NoteType.image ? "JPG" : typeLabel;
     return "$left • $sizeOrKind";
   }
@@ -49,9 +48,8 @@ class NoteItem {
     }
   }
 
-  // Optional for later API usage
   factory NoteItem.fromJson(Map<String, dynamic> json) => NoteItem(
-    id: json["id"] ?? "",
+    id: int.tryParse((json["id"] ?? "0").toString()) ?? 0,
     title: json["title"] ?? "",
     dateLabel: json["dateLabel"] ?? "",
     type: _typeFrom(json["type"]),

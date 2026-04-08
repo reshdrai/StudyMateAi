@@ -5,6 +5,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/config/routes.dart';
 import 'data/notes_repository.dart';
 import 'model/note_item.dart';
+import '../note_details/materials_study_page.dart';
 
 class NotesLibraryPage extends StatefulWidget {
   const NotesLibraryPage({super.key});
@@ -150,8 +151,15 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
                       return _NoteCard(
                         note: n,
                         onTap: () {
-                          // ✅ future: open note detail screen
-                          // context.push('/notes/${n.id}');
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MaterialStudyPage(
+                                materialId: (n.id),
+                                title: n.title,
+                              ),
+                            ),
+                          );
                         },
                       );
                     },

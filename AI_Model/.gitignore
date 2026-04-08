@@ -2,6 +2,7 @@
 AI_Model/models/
 
 # Ignore ML model formats
-*.safetensors
-*.pt
 *.bin
+*.pt
+*.safetensors
+*.ckpt

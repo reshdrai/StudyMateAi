@@ -1,74 +1,65 @@
-// import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
-// class AuthRepository {
-//   final FlutterSecureStorage _storage = const FlutterSecureStorage();
-
-//   Future<void> login({required String email, required String password}) async {
-//     // ✅ NO-API mode (works now)
-//     if (email.isNotEmpty && password.isNotEmpty) {
-//       await _storage.write(key: "accessToken", value: "FAKE_ACCESS_TOKEN");
-//       await _storage.write(key: "refreshToken", value: "FAKE_REFRESH_TOKEN");
-//       return;
-//     }
-//     throw Exception("Enter email and password");
-//   }
-
-//   Future<void> signup({
-//     required String fullName,
-//     required String email,
-//     required String password,
-//   }) async {
-//     // ✅ NO-API mode (works now)
-//     if (fullName.isNotEmpty && email.isNotEmpty && password.isNotEmpty) {
-//       // pretend created
-//       return;
-//     }
-//     throw Exception("Fill all signup fields");
-
-//     // ✅ WHEN API IS READY:
-//     // POST /api/auth/signup
-//     // Body: { fullName, email, password }
-//     // return success message or tokens
-//   }
-
-//   Future<void> forgotPassword({required String email}) async {
-//     // ✅ NO-API mode (works now)
-//     if (email.isNotEmpty) {
-//       // pretend mail sent
-//       return;
-//     }
-//     throw Exception("Enter email");
-
-//     // ✅ WHEN API IS READY:
-//     // POST /api/auth/forgot-password
-//     // Body: { email }
-//     // return success message
-//   }
-// }
+import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import '../../../services/api_config.dart';
+import '../../../services/token_storage.dart';
 
 class AuthRepository {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
+  String get baseUrl => ApiConfig.baseUrl;
+
   Future<void> login({required String email, required String password}) async {
-    // ✅ NO API MODE (works now)
     if (email.trim().isEmpty || password.trim().isEmpty) {
       throw Exception("Please enter email and password");
     }
 
-    // Fake token store (so future auth guard can work)
-    await _storage.write(key: "accessToken", value: "FAKE_ACCESS_TOKEN");
-    await _storage.write(key: "refreshToken", value: "FAKE_REFRESH_TOKEN");
+    final response = await http.post(
+      Uri.parse("$baseUrl/auth/login"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({"email": email.trim(), "password": password}),
+    );
 
-    return;
+    print("LOGIN STATUS: ${response.statusCode}");
+    print("LOGIN BODY: ${response.body}");
 
-    // ✅ WHEN SPRING BOOT IS READY (UNCOMMENT THIS AND REMOVE FAKE ABOVE):
-    // final res = await ApiClient.instance.dio.post("/api/auth/login", data: {
-    //   "email": email,
-    //   "password": password,
-    // });
-    // await _storage.write(key: "accessToken", value: res.data["accessToken"]);
-    // await _storage.write(key: "refreshToken", value: res.data["refreshToken"]);
+    if (response.body.trim().isEmpty) {
+      throw Exception(
+        "Server returned empty response (${response.statusCode})",
+      );
+    }
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200) {
+      final token = data["token"];
+
+      if (token == null || token.toString().isEmpty) {
+        throw Exception("Token not found in login response");
+      }
+
+      await TokenStorage.saveAuthData(
+        token: token.toString(),
+        email: (data["email"] ?? "").toString(),
+        name: (data["name"] ?? "").toString(),
+        role: (data["role"] ?? "").toString(),
+      );
+
+      await _storage.write(
+        key: "userEmail",
+        value: (data["email"] ?? "").toString(),
+      );
+      await _storage.write(
+        key: "userName",
+        value: (data["name"] ?? "").toString(),
+      );
+      await _storage.write(
+        key: "userRole",
+        value: (data["role"] ?? "").toString(),
+      );
+    } else {
+      throw Exception(data["message"] ?? data["detail"] ?? data.toString());
+    }
   }
 
   Future<void> signup({
@@ -81,17 +72,75 @@ class AuthRepository {
         password.trim().isEmpty) {
       throw Exception("Fill all signup fields");
     }
-    return;
 
-    // ✅ LATER: POST /api/auth/signup
+    final response = await http.post(
+      Uri.parse("$baseUrl/auth/register"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({
+        "fullName": fullName.trim(),
+        "email": email.trim(),
+        "password": password,
+      }),
+    );
+
+    print("SIGNUP STATUS: ${response.statusCode}");
+    print("SIGNUP BODY: ${response.body}");
+
+    if (response.body.trim().isEmpty) {
+      throw Exception(
+        "Server returned empty response (${response.statusCode})",
+      );
+    }
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200) {
+      final token = data["token"];
+
+      if (token == null || token.toString().isEmpty) {
+        throw Exception("Token not found in register response");
+      }
+
+      await TokenStorage.saveAuthData(
+        token: token.toString(),
+        email: (data["email"] ?? "").toString(),
+        name: (data["name"] ?? "").toString(),
+        role: (data["role"] ?? "").toString(),
+      );
+
+      await _storage.write(
+        key: "userEmail",
+        value: (data["email"] ?? "").toString(),
+      );
+      await _storage.write(
+        key: "userName",
+        value: (data["name"] ?? "").toString(),
+      );
+      await _storage.write(
+        key: "userRole",
+        value: (data["role"] ?? "").toString(),
+      );
+    } else {
+      throw Exception(data["message"] ?? data["detail"] ?? data.toString());
+    }
+  }
+
+  Future<String?> getToken() async {
+    return await TokenStorage.getToken();
   }
 
   Future<void> forgotPassword({required String email}) async {
     if (email.trim().isEmpty) {
       throw Exception("Enter your email");
     }
-    return;
 
-    // ✅ LATER: POST /api/auth/forgot-password
+    throw Exception("Forgot password API not added yet");
+  }
+
+  Future<void> logout() async {
+    await TokenStorage.clearAll();
+    await _storage.delete(key: "userEmail");
+    await _storage.delete(key: "userName");
+    await _storage.delete(key: "userRole");
   }
 }

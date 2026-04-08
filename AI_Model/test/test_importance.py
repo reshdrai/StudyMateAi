@@ -9,18 +9,44 @@ model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device).eval()
 
-sentences = [
-    "inline elements ignore width and height.",
-    "I will practice tomorrow.",
-    "block elements take full width."
+
+def predict_importance(topic, subtopic, content):
+    text = f"topic: {topic} subtopic: {subtopic} content: {content}"
+
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=256
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    pred_id = outputs.logits.argmax(dim=1).item()
+    label = model.config.id2label[pred_id]
+    return label
+
+
+samples = [
+    {
+        "topic": "Characteristics of Computers",
+        "subtopic": "Speed",
+        "content": "Speed is a major characteristic of computers and is often asked in exams."
+    },
+    {
+        "topic": "Characteristics of Computers",
+        "subtopic": "Reliability",
+        "content": "Reliability helps computers produce dependable results over repeated tasks."
+    },
+    {
+        "topic": "Applications of Computers",
+        "subtopic": "Music",
+        "content": "Computers can also be used in music production and editing."
+    }
 ]
 
-inputs = tokenizer(sentences, return_tensors="pt", padding=True).to(device)
-
-with torch.no_grad():
-    outputs = model(**inputs)
-
-preds = outputs.logits.argmax(dim=1)
-
-for s, p in zip(sentences, preds):
-    print(s, "->", "Important" if p.item() == 1 else "Not Important")
+for s in samples:
+    pred = predict_importance(s["topic"], s["subtopic"], s["content"])
+    print(f"{s['topic']} | {s['subtopic']} -> {pred}")
