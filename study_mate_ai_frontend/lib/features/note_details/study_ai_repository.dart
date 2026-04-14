@@ -1,45 +1,61 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../../services/token_storage.dart';
+import '../../../services/api_config.dart';
 import 'study_models.dart';
 
 class StudyAiRepository {
-  final baseUrl = 'http://localhost:8080/api/materials';
+  String get baseUrl => '${ApiConfig.baseUrl}/api/materials';
 
   Future<Map<String, String>> _headers() async {
     final token = await TokenStorage.getToken();
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
+      if (token != null) 'Authorization': 'Bearer $token',
     };
   }
 
   Future<OverviewResponse> generateOverview(int materialId) async {
-    final url = Uri.parse('$baseUrl/$materialId/overview');
-    print('OVERVIEW URL: $url');
-
-    final response = await http.post(url, headers: await _headers());
-
-    print('OVERVIEW STATUS: ${response.statusCode}');
-    print('OVERVIEW BODY: ${response.body}');
-
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return OverviewResponse.fromJson(jsonDecode(response.body));
-    } else {
-      throw Exception('Overview failed: ${response.body}');
+    final res = await http.post(
+      Uri.parse('$baseUrl/$materialId/overview'),
+      headers: await _headers(),
+    );
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return OverviewResponse.fromJson(jsonDecode(res.body));
     }
+    throw Exception('Overview failed: ${res.body}');
   }
 
+  /// Generate quiz for ALL topics
   Future<QuizResponse> generateQuiz(int materialId) async {
     final res = await http.post(
       Uri.parse('$baseUrl/$materialId/quiz'),
       headers: await _headers(),
     );
-
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return QuizResponse.fromJson(jsonDecode(res.body));
     }
-    throw Exception('Failed to generate quiz: ${res.body}');
+    throw Exception('Quiz failed: ${res.body}');
+  }
+
+  /// Generate quiz for a SPECIFIC topic
+  Future<QuizResponse> generateQuizForTopic(
+    int materialId,
+    String topicLabel, {
+    int maxQuestions = 5,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/$materialId/quiz/topic'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'topicLabel': topicLabel,
+        'maxQuestions': maxQuestions,
+      }),
+    );
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return QuizResponse.fromJson(jsonDecode(res.body));
+    }
+    throw Exception('Quiz failed: ${res.body}');
   }
 
   Future<QuizResult> submitQuiz(
@@ -51,28 +67,25 @@ class StudyAiRepository {
           .map((e) => {'question': e.key, 'userAnswer': e.value})
           .toList(),
     };
-
     final res = await http.post(
       Uri.parse('$baseUrl/$materialId/quiz/submit'),
       headers: await _headers(),
       body: jsonEncode(body),
     );
-
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return QuizResult.fromJson(jsonDecode(res.body));
     }
-    throw Exception('Failed to submit quiz: ${res.body}');
+    throw Exception('Submit failed: ${res.body}');
   }
 
-  Future<StudyPlanResponse> generateStudyPlan(int materialId) async {
+  Future<dynamic> generateStudyPlan(int materialId) async {
     final res = await http.post(
       Uri.parse('$baseUrl/$materialId/study-plan'),
       headers: await _headers(),
     );
-
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      return StudyPlanResponse.fromJson(jsonDecode(res.body));
+      return jsonDecode(res.body);
     }
-    throw Exception('Failed to generate study plan: ${res.body}');
+    throw Exception('Study plan failed: ${res.body}');
   }
 }

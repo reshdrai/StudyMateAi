@@ -18,31 +18,25 @@ public class MaterialAnalysis {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne
+    @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "material_id", nullable = false, unique = true)
     private Material material;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String rawOutput;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String keyPoints;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String importantTopics;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String questions;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String weakTopics;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String studyPlan;
 

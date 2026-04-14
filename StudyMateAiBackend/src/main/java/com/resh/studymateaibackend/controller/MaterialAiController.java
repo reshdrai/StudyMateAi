@@ -9,6 +9,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/materials")
 @RequiredArgsConstructor
@@ -20,19 +22,33 @@ public class MaterialAiController {
     public ResponseEntity<OverviewResponseDto> generateOverview(
             @PathVariable Long id,
             @AuthenticationPrincipal CustomUserDetails userDetails
-    )  throws Exception {
-        System.out.println("ENTERED /overview FOR ID = " + id);
-        User user = userDetails.getUser();
-        return ResponseEntity.ok(materialAiService.generateOverview(id, user));
+    ) throws Exception {
+        return ResponseEntity.ok(materialAiService.generateOverview(id, userDetails.getUser()));
     }
 
+    /** Generate quiz from ALL topics */
     @PostMapping("/{id}/quiz")
     public ResponseEntity<QuizResponseDto> generateQuiz(
             @PathVariable Long id,
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) throws Exception {
-        User user = userDetails.getUser();
-        return ResponseEntity.ok(materialAiService.generateQuiz(id, user));
+        return ResponseEntity.ok(materialAiService.generateQuiz(id, userDetails.getUser()));
+    }
+
+    /** Generate quiz for a SPECIFIC topic */
+    @PostMapping("/{id}/quiz/topic")
+    public ResponseEntity<QuizResponseDto> generateQuizForTopic(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal CustomUserDetails userDetails
+    ) throws Exception {
+        String topicLabel = body.getOrDefault("topicLabel", "ALL").toString();
+        String subtopicLabel = body.containsKey("subtopicLabel") ? body.get("subtopicLabel").toString() : null;
+        int maxQuestions = body.containsKey("maxQuestions") ? Integer.parseInt(body.get("maxQuestions").toString()) : 5;
+
+        return ResponseEntity.ok(
+                materialAiService.generateQuizForTopic(id, userDetails.getUser(), topicLabel, subtopicLabel, maxQuestions)
+        );
     }
 
     @PostMapping("/{id}/quiz/submit")
@@ -41,8 +57,7 @@ public class MaterialAiController {
             @RequestBody QuizSubmitRequestDto request,
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) throws Exception {
-        User user = userDetails.getUser();
-        return ResponseEntity.ok(materialAiService.submitQuiz(id, user, request));
+        return ResponseEntity.ok(materialAiService.submitQuiz(id, userDetails.getUser(), request));
     }
 
     @PostMapping("/{id}/study-plan")
@@ -50,7 +65,6 @@ public class MaterialAiController {
             @PathVariable Long id,
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) throws Exception {
-        User user = userDetails.getUser();
-        return ResponseEntity.ok(materialAiService.generateStudyPlan(id, user));
+        return ResponseEntity.ok(materialAiService.generateStudyPlan(id, userDetails.getUser()));
     }
 }

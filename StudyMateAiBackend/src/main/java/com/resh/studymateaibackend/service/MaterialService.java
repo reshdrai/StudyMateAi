@@ -13,6 +13,7 @@ import com.resh.studymateaibackend.repository.MaterialStudyPlanRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -32,15 +33,14 @@ public class MaterialService {
 
     private String cleanExtractedText(String text) {
         if (text == null) return null;
-
         return text
                 .replace("\u0000", "")
                 .replaceAll("[\\p{Cntrl}&&[^\r\n\t]]", "")
                 .trim();
     }
 
+    @Transactional
     public UploadMaterialResponse uploadMaterial(User user, MultipartFile file, String title, Long subjectId) throws IOException {
-
         if (file == null || file.isEmpty()) {
             throw new RuntimeException("File is empty");
         }
@@ -68,15 +68,45 @@ public class MaterialService {
                 .build();
     }
 
+    /**
+     * Get materials list.
+     * IMPORTANT: This only reads basic Material fields.
+     * It does NOT touch MaterialAnalysis lob fields.
+     */
+    @Transactional(readOnly = true)
     public List<MaterialCardResponse> getMaterials(User user, String category, String q) {
-        List<Material> materials = materialRepository.findByUserId(user.getId());
+        List<Material> materials;
+
+        if (q != null && !q.isBlank()) {
+            materials = materialRepository.findByUserIdAndTitleContainingIgnoreCaseOrderByCreatedAtDesc(
+                    user.getId(), q
+            );
+        } else if (category != null && !category.equalsIgnoreCase("All") && !category.isBlank()) {
+            materials = materialRepository.findByUserIdAndSubject_NameContainingIgnoreCaseOrderByCreatedAtDesc(
+                    user.getId(), category
+            );
+        } else {
+            materials = materialRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        }
 
         List<MaterialCardResponse> response = new ArrayList<>();
 
         for (Material material : materials) {
+            // Build response from basic fields only — no lob access
+            String subjectName = null;
+            try {
+                if (material.getSubject() != null) {
+                    subjectName = material.getSubject().getName();
+                }
+            } catch (Exception e) {
+                // Subject lazy load failed, that's okay
+                subjectName = "General";
+            }
+
             response.add(MaterialCardResponse.builder()
                     .id(material.getId())
                     .title(material.getTitle())
+                    .subjectName(subjectName)
                     .fileType(material.getFileType())
                     .fileUrl(material.getFileUrl())
                     .processingStatus(material.getProcessingStatus())
@@ -87,9 +117,15 @@ public class MaterialService {
         return response;
     }
 
+    /**
+     * Get material details including analysis data.
+     * Uses @Transactional to keep session open while reading lob fields.
+     */
+    @Transactional(readOnly = true)
     public MaterialDetailsResponse getMaterialDetails(Long materialId, User user) {
         Material material = getOwnedMaterial(materialId, user);
 
+        // Explicitly query analysis and study plan (not through material.getAnalysis())
         MaterialAnalysis analysis = materialAnalysisRepository
                 .findByMaterialId(materialId)
                 .orElse(null);
@@ -114,6 +150,7 @@ public class MaterialService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
     public Material getOwnedMaterial(Long materialId, User user) {
         Material material = materialRepository.findById(materialId)
                 .orElseThrow(() -> new RuntimeException("Material not found"));

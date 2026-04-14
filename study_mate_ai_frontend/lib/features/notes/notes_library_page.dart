@@ -23,7 +23,7 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
   final List<String> _tabs = ["All", "Comp Sci", "Calculus", "History"];
   String _activeTab = "All";
 
-  int _navIndex = 1; // Library selected
+  int _navIndex = 1;
 
   @override
   void initState() {
@@ -61,123 +61,124 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
           builder: (context, snap) {
             final notes = snap.data ?? const <NoteItem>[];
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 90),
-              children: [
-                Row(
-                  children: [
-                    const Text(
-                      "✦ AI ASSISTANT",
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2,
-                        fontSize: 12,
+            return RefreshIndicator(
+              onRefresh: () async {
+                _reload();
+                await _future;
+              },
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 90),
+                children: [
+                  // ── Header ──
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          "✦ AI ASSISTANT",
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.0,
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
+                      const Spacer(),
+                      _CircleIconButton(
+                        icon: Icons.grid_view_rounded,
+                        onTap: () {},
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "Notes Library",
+                    style:
+                        TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Upload notes and let AI analyze them",
+                    style: TextStyle(
+                      color: AppColors.textSecondary.withOpacity(0.8),
+                      fontSize: 14,
                     ),
-                    const Spacer(),
-                    _CircleIconButton(
-                      icon: Icons.grid_view_rounded,
-                      onTap: () {
-                        // ✅ future: switch grid/list mode
+                  ),
+
+                  const SizedBox(height: 16),
+                  _SearchBar(
+                    controller: _searchCtrl,
+                    onChanged: (_) => _reload(),
+                  ),
+
+                  const SizedBox(height: 14),
+                  _CategoryChips(
+                    tabs: _tabs,
+                    active: _activeTab,
+                    onSelect: _onTabSelect,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  if (snap.connectionState == ConnectionState.waiting)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 40),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (notes.isEmpty)
+                    _buildEmptyState()
+                  else
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: notes.length,
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 0.78,
+                      ),
+                      itemBuilder: (_, i) {
+                        final n = notes[i];
+                        return _NoteCard(
+                          note: n,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => MaterialStudyPage(
+                                  materialId: n.id,
+                                  title: n.title,
+                                ),
+                              ),
+                            );
+                          },
+                        );
                       },
                     ),
-                  ],
-                ),
-
-                const SizedBox(height: 10),
-                const Text(
-                  "Notes Library",
-                  style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
-                ),
-
-                const SizedBox(height: 14),
-                _SearchBar(
-                  controller: _searchCtrl,
-                  onChanged: (_) => _reload(),
-                ),
-
-                const SizedBox(height: 14),
-                _CategoryChips(
-                  tabs: _tabs,
-                  active: _activeTab,
-                  onSelect: _onTabSelect,
-                ),
-
-                const SizedBox(height: 14),
-
-                if (snap.connectionState == ConnectionState.waiting)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 30),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (notes.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 30),
-                    child: Column(
-                      children: const [
-                        Icon(
-                          Icons.note_alt_outlined,
-                          size: 44,
-                          color: AppColors.textSecondary,
-                        ),
-                        SizedBox(height: 10),
-                        Text(
-                          "No notes found",
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          "Try another category or search keyword.",
-                          style: TextStyle(color: AppColors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: notes.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
-                          childAspectRatio: 0.78,
-                        ),
-                    itemBuilder: (_, i) {
-                      final n = notes[i];
-                      return _NoteCard(
-                        note: n,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => MaterialStudyPage(
-                                materialId: (n.id),
-                                title: n.title,
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-              ],
+                ],
+              ),
             );
           },
         ),
       ),
 
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
-        onPressed: () {
-          // ✅ future: create/upload note
-          context.push(AppRoutes.upload);
-        },
-        child: const Icon(Icons.add),
+        onPressed: () => context.push(AppRoutes.upload),
+        icon: const Icon(Icons.add, size: 20),
+        label: const Text(
+          'Upload',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
       ),
 
       bottomNavigationBar: BottomNavigationBar(
@@ -186,11 +187,8 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
         unselectedItemColor: AppColors.textSecondary,
         onTap: (i) {
           setState(() => _navIndex = i);
-          // ✅ WHEN OTHER SCREENS READY:
-          // if (i == 0) context.go(AppRoutes.home);
-          // if (i == 1) context.go('/library');
-          // if (i == 2) context.go('/schedule');
-          // if (i == 3) context.go('/settings');
+          if (i == 0) context.go(AppRoutes.home);
+          if (i == 1) context.go(AppRoutes.library);
         },
         items: const [
           BottomNavigationBarItem(
@@ -213,7 +211,64 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
       ),
     );
   }
+
+  Widget _buildEmptyState() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 40),
+      child: Column(
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceSoft,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: const Icon(
+              Icons.note_add_outlined,
+              size: 34,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "No notes yet",
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "Upload a PDF or text file to get started.\nAI will extract key points and create quizzes.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () => context.push(AppRoutes.upload),
+            icon: const Icon(Icons.file_upload_outlined, size: 18),
+            label: const Text('Upload Notes'),
+            style: ElevatedButton.styleFrom(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+// ════════════════════════════════════════════
+// Sub-components
+// ════════════════════════════════════════════
 
 class _CircleIconButton extends StatelessWidget {
   const _CircleIconButton({required this.icon, required this.onTap});
@@ -225,15 +280,18 @@ class _CircleIconButton extends StatelessWidget {
     return Material(
       color: AppColors.surface,
       shape: const CircleBorder(),
-      elevation: 1.2,
-      shadowColor: Colors.black12,
+      elevation: 0,
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Icon(icon, color: AppColors.textPrimary),
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.outline),
+          ),
+          child: Icon(icon, color: AppColors.textPrimary, size: 20),
         ),
       ),
     );
@@ -255,6 +313,8 @@ class _SearchBar extends StatelessWidget {
         hintText: "Search your notes...",
         filled: true,
         fillColor: AppColors.surface,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: AppColors.outline),
@@ -282,11 +342,11 @@ class _CategoryChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 40,
+      height: 38,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: tabs.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
           final t = tabs[i];
           final isActive = t == active;
@@ -296,7 +356,8 @@ class _CategoryChips extends StatelessWidget {
             onTap: () => onSelect(t),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
               decoration: BoxDecoration(
                 color: isActive ? AppColors.primary : AppColors.surface,
                 borderRadius: BorderRadius.circular(999),
@@ -308,7 +369,8 @@ class _CategoryChips extends StatelessWidget {
                 child: Text(
                   t,
                   style: TextStyle(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
                     color: isActive ? Colors.white : AppColors.textPrimary,
                   ),
                 ),
@@ -328,18 +390,16 @@ class _NoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final badge = note.statusLabel;
-    final badgeColor = note.status == NoteStatus.aiReady
-        ? AppColors.primary
-        : (note.status == NoteStatus.analyzing
-              ? const Color(0xFFF59E0B)
-              : AppColors.textSecondary);
+    final statusLabel = note.statusLabel;
+    final hasStatus = statusLabel.isNotEmpty;
 
-    final badgeBg = note.status == NoteStatus.aiReady
-        ? AppColors.primary.withOpacity(0.12)
-        : (note.status == NoteStatus.analyzing
-              ? const Color(0xFFF59E0B).withOpacity(0.12)
-              : AppColors.surfaceSoft);
+    final statusColor = note.status == NoteStatus.aiReady
+        ? AppColors.success
+        : note.status == NoteStatus.analyzing
+            ? AppColors.warning
+            : AppColors.textSecondary;
+
+    final statusBg = statusColor.withOpacity(0.10);
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
@@ -354,7 +414,7 @@ class _NoteCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // thumbnail area
+            // Thumbnail area
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -364,62 +424,75 @@ class _NoteCard extends StatelessWidget {
                 ),
                 child: Stack(
                   children: [
-                    Align(
-                      alignment: Alignment.topRight,
-                      child: Container(
-                        margin: const EdgeInsets.all(10),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: badgeBg,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          badge,
-                          style: TextStyle(
-                            color: badgeColor,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                            letterSpacing: 0.3,
+                    // Status badge
+                    if (hasStatus)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusBg,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (note.status == NoteStatus.aiReady)
+                                Icon(Icons.check_circle,
+                                    size: 12, color: statusColor)
+                              else if (note.status == NoteStatus.analyzing)
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation(
+                                        statusColor),
+                                  ),
+                                ),
+                              const SizedBox(width: 4),
+                              Text(
+                                note.status == NoteStatus.aiReady
+                                    ? 'READY'
+                                    : 'PROCESSING',
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 9,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
+                    // File type icon
                     Center(
-                      child: note.previewImagePath != null
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: Image.asset(
-                                note.previewImagePath!,
-                                fit: BoxFit.cover,
-                                width: double.infinity,
-                                height: double.infinity,
-                              ),
-                            )
-                          : Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  note.type == NoteType.pdf
-                                      ? Icons.picture_as_pdf_outlined
-                                      : (note.type == NoteType.image
-                                            ? Icons.image_outlined
-                                            : Icons.description_outlined),
-                                  size: 40,
-                                  color: AppColors.primary,
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  note.typeLabel,
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            note.type == NoteType.pdf
+                                ? Icons.picture_as_pdf_outlined
+                                : note.type == NoteType.image
+                                    ? Icons.image_outlined
+                                    : Icons.description_outlined,
+                            size: 36,
+                            color: AppColors.primary.withOpacity(0.7),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            note.typeLabel,
+                            style: TextStyle(
+                              color: AppColors.textSecondary.withOpacity(0.7),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
                             ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -430,15 +503,18 @@ class _NoteCard extends StatelessWidget {
               note.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w900),
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+              ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               "${note.dateLabel} • ${note.metaLabel}",
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
+              style: TextStyle(
+                color: AppColors.textSecondary.withOpacity(0.7),
+                fontWeight: FontWeight.w600,
+                fontSize: 11,
               ),
             ),
           ],

@@ -11,6 +11,7 @@ import com.resh.studymateaibackend.repository.MaterialRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class MaterialAiService {
 
     private final MaterialRepository materialRepository;
@@ -26,95 +28,87 @@ public class MaterialAiService {
     private final AiModelClient aiModelClient;
     private final ObjectMapper objectMapper;
 
+    // ========== OVERVIEW ==========
+
     public OverviewResponseDto generateOverview(Long materialId, User user) throws Exception {
-        try {
-            System.out.println("STEP 1: Entered generateOverview");
-            System.out.println("MATERIAL ID = " + materialId);
+        Material material = getOwnedMaterial(materialId, user);
+        String cleanedText = getCleanMaterialText(material);
 
-            Material material = getOwnedMaterial(materialId, user);
-            System.out.println("STEP 2: Material loaded");
-
-            String cleanedText = getCleanMaterialText(material);
-            System.out.println("STEP 3: Cleaned text length = " + (cleanedText == null ? "null" : cleanedText.length()));
-
-            if (cleanedText == null || cleanedText.isBlank()) {
-                throw new RuntimeException("Material text is empty. Cannot generate overview.");
-            }
-
-            Map<String, Object> keyPointsResponse = aiModelClient.generateKeyPoints(cleanedText);
-            System.out.println("STEP 4: Key points generated");
-
-            Map<String, Object> importanceResponse = aiModelClient.rankImportance(cleanedText);
-            System.out.println("STEP 5: Importance generated");
-
-            List<FlashcardDto> flashcards = normalizeFlashcards(keyPointsResponse);
-            List<TopicPriorityDto> topics = normalizeTopics(importanceResponse);
-            System.out.println("STEP 6: Responses normalized");
-
-            MaterialAnalysis analysis = getOrCreateAnalysis(material);
-            analysis.setRawOutput(objectMapper.writeValueAsString(
-                    Map.of(
-                            "keyPointsResponse", keyPointsResponse,
-                            "importanceResponse", importanceResponse
-                    )
-            ));
-            analysis.setKeyPoints(objectMapper.writeValueAsString(flashcards));
-            analysis.setImportantTopics(objectMapper.writeValueAsString(topics));
-            analysis.setAnalyzedAt(LocalDateTime.now());
-            materialAnalysisRepository.save(analysis);
-            System.out.println("STEP 7: Analysis saved");
-
-            material.setProcessingStatus("OVERVIEW_READY");
-            materialRepository.save(material);
-            System.out.println("STEP 8: Material saved");
-
-            return OverviewResponseDto.builder()
-                    .materialId(material.getId())
-                    .flashcards(flashcards)
-                    .importantTopics(topics)
-                    .build();
-
-        } catch (Exception e) {
-            System.out.println("ERROR INSIDE generateOverview = " + e.getMessage());
-            e.printStackTrace();
-            throw e;
+        if (cleanedText.startsWith("%PDF") || cleanedText.startsWith("JVBERi")) {
+            throw new RuntimeException("Raw PDF data detected. Please re-upload the file.");
         }
+        if (cleanedText.length() < 20) {
+            throw new RuntimeException("Text too short (" + cleanedText.length() + " chars). PDF may need OCR.");
+        }
+
+        System.out.println("AI: Calling keypoints for text length=" + cleanedText.length());
+        Map<String, Object> keyPointsResponse = aiModelClient.generateKeyPoints(cleanedText);
+        System.out.println("AI: keypoints keys=" + keyPointsResponse.keySet());
+
+        System.out.println("AI: Calling rank_importance...");
+        Map<String, Object> importanceResponse = aiModelClient.rankImportance(cleanedText);
+        System.out.println("AI: importance keys=" + importanceResponse.keySet());
+
+        if (keyPointsResponse.isEmpty() && importanceResponse.isEmpty()) {
+            throw new RuntimeException("AI service returned empty. Python server may still be starting.");
+        }
+
+        List<FlashcardDto> flashcards = parseFlashcards(keyPointsResponse);
+        List<TopicPriorityDto> topics = parseImportantTopics(importanceResponse);
+
+        System.out.println("AI: Parsed " + flashcards.size() + " flashcards, " + topics.size() + " topics");
+
+        // Save
+        MaterialAnalysis analysis = getOrCreateAnalysis(material);
+        analysis.setRawOutput(objectMapper.writeValueAsString(Map.of(
+                "keyPointsResponse", keyPointsResponse,
+                "importanceResponse", importanceResponse
+        )));
+        analysis.setKeyPoints(objectMapper.writeValueAsString(flashcards));
+        analysis.setImportantTopics(objectMapper.writeValueAsString(topics));
+        analysis.setAnalyzedAt(LocalDateTime.now());
+        materialAnalysisRepository.save(analysis);
+
+        material.setProcessingStatus("OVERVIEW_READY");
+        materialRepository.save(material);
+
+        return OverviewResponseDto.builder()
+                .materialId(material.getId())
+                .flashcards(flashcards)
+                .importantTopics(topics)
+                .build();
     }
 
+    // ========== QUIZ (supports topic selection) ==========
+
     public QuizResponseDto generateQuiz(Long materialId, User user) throws Exception {
+        return generateQuizForTopic(materialId, user, "ALL", null, 5);
+    }
+
+    public QuizResponseDto generateQuizForTopic(Long materialId, User user,
+                                                String topicLabel, String subtopicLabel,
+                                                int maxQuestions) throws Exception {
         Material material = getOwnedMaterial(materialId, user);
         String cleanedText = getCleanMaterialText(material);
 
         MaterialAnalysis analysis = getOrCreateAnalysis(material);
 
+        // Ensure overview exists
         List<TopicPriorityDto> topics = readTopics(analysis);
         if (topics.isEmpty()) {
-            OverviewResponseDto overview = generateOverview(materialId, user);
-            topics = overview.getImportantTopics();
+            generateOverview(materialId, user);
+            analysis = getOrCreateAnalysis(material);
+            topics = readTopics(analysis);
         }
 
-        String topicLabel = "General Topic";
-        String subtopicLabel = "General Subtopic";
-
-        if (!topics.isEmpty()) {
-            TopicPriorityDto mainTopic = topics.get(0);
-            topicLabel = mainTopic.getTopic();
-            if (mainTopic.getSubtopics() != null && !mainTopic.getSubtopics().isEmpty()) {
-                subtopicLabel = mainTopic.getSubtopics().get(0);
-            } else {
-                subtopicLabel = topicLabel;
-            }
-        }
+        String effectiveTopic = (topicLabel != null && !topicLabel.isBlank()) ? topicLabel : "ALL";
+        String effectiveSubtopic = subtopicLabel;
 
         Map<String, Object> quizResponse = aiModelClient.generateQuiz(
-                cleanedText,
-                null,
-                topicLabel,
-                subtopicLabel,
-                5
+                cleanedText, null, effectiveTopic, effectiveSubtopic, maxQuestions
         );
 
-        List<QuizQuestionDto> questions = normalizeQuestions(quizResponse, topicLabel);
+        List<QuizQuestionDto> questions = parseQuizQuestions(quizResponse);
 
         analysis.setQuestions(objectMapper.writeValueAsString(questions));
         analysis.setAnalyzedAt(LocalDateTime.now());
@@ -129,316 +123,286 @@ public class MaterialAiService {
                 .build();
     }
 
+    // ========== QUIZ SUBMIT ==========
+
     public QuizResultDto submitQuiz(Long materialId, User user, QuizSubmitRequestDto request) throws Exception {
         Material material = getOwnedMaterial(materialId, user);
         MaterialAnalysis analysis = getOrCreateAnalysis(material);
 
-        List<QuizQuestionDto> savedQuestions = readQuestions(analysis);
-        if (savedQuestions.isEmpty()) {
-            throw new IllegalStateException("No quiz found. Generate quiz first.");
-        }
+        List<QuizQuestionDto> saved = readQuestions(analysis);
+        if (saved.isEmpty()) throw new IllegalStateException("No quiz found. Generate quiz first.");
 
-        Map<String, String> userAnswers = new HashMap<>();
+        Map<String, String> answers = new HashMap<>();
         if (request.getAnswers() != null) {
-            for (QuizAnswerDto answer : request.getAnswers()) {
-                userAnswers.put(
-                        safe(answer.getQuestion()).trim().toLowerCase(),
-                        safe(answer.getUserAnswer()).trim().toLowerCase()
-                );
+            for (QuizAnswerDto a : request.getAnswers()) {
+                answers.put(safe(a.getQuestion()).trim().toLowerCase(),
+                        safe(a.getUserAnswer()).trim().toLowerCase());
             }
         }
 
         int correct = 0;
-        Map<String, int[]> topicStats = new HashMap<>();
+        Map<String, int[]> stats = new HashMap<>();
 
-        for (QuizQuestionDto q : savedQuestions) {
-            String qKey = safe(q.getQuestion()).trim().toLowerCase();
+        for (QuizQuestionDto q : saved) {
+            String key = safe(q.getQuestion()).trim().toLowerCase();
             String expected = safe(q.getAnswer()).trim().toLowerCase();
-            String actual = userAnswers.getOrDefault(qKey, "");
-
-            boolean isCorrect = !expected.isBlank() && actual.equals(expected);
-            if (isCorrect) {
-                correct++;
-            }
+            String actual = answers.getOrDefault(key, "");
+            boolean ok = !expected.isBlank() && actual.equals(expected);
+            if (ok) correct++;
 
             String topic = safe(q.getTopic()).isBlank() ? "General" : q.getTopic();
-            topicStats.putIfAbsent(topic, new int[]{0, 0});
-            topicStats.get(topic)[0]++;
-
-            if (isCorrect) {
-                topicStats.get(topic)[1]++;
-            }
+            stats.putIfAbsent(topic, new int[]{0, 0});
+            stats.get(topic)[0]++;
+            if (ok) stats.get(topic)[1]++;
         }
 
-        List<String> weakTopics = new ArrayList<>();
-        for (Map.Entry<String, int[]> entry : topicStats.entrySet()) {
-            int total = entry.getValue()[0];
-            int right = entry.getValue()[1];
-            double ratio = total == 0 ? 0 : (double) right / total;
+        List<String> weak = stats.entrySet().stream()
+                .filter(e -> e.getValue()[0] > 0 && (double) e.getValue()[1] / e.getValue()[0] < 0.6)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
 
-            if (ratio < 0.6) {
-                weakTopics.add(entry.getKey());
-            }
-        }
-
-        analysis.setWeakTopics(objectMapper.writeValueAsString(weakTopics));
+        analysis.setWeakTopics(objectMapper.writeValueAsString(weak));
         analysis.setAnalyzedAt(LocalDateTime.now());
         materialAnalysisRepository.save(analysis);
 
         material.setProcessingStatus("QUIZ_DONE");
         materialRepository.save(material);
 
-        int totalQuestions = savedQuestions.size();
-        double scorePercent = totalQuestions == 0 ? 0 : (correct * 100.0 / totalQuestions);
-
+        double pct = saved.isEmpty() ? 0 : (correct * 100.0 / saved.size());
         return QuizResultDto.builder()
-                .totalQuestions(totalQuestions)
-                .correctAnswers(correct)
-                .scorePercent(scorePercent)
-                .weakTopics(weakTopics)
-                .build();
+                .totalQuestions(saved.size()).correctAnswers(correct)
+                .scorePercent(pct).weakTopics(weak).build();
     }
+
+    // ========== STUDY PLAN ==========
 
     public StudyPlanResponseDto generateStudyPlan(Long materialId, User user) throws Exception {
         Material material = getOwnedMaterial(materialId, user);
         MaterialAnalysis analysis = getOrCreateAnalysis(material);
 
-        List<String> weakTopics = readWeakTopics(analysis);
-        List<TopicPriorityDto> importantTopics = readTopics(analysis);
+        List<String> weak = readWeakTopics(analysis);
+        List<TopicPriorityDto> topics = readTopics(analysis);
 
-        List<StudyPlanDayDto> days = buildStudyPlan(weakTopics, importantTopics);
+        LinkedHashSet<String> ordered = new LinkedHashSet<>(weak);
+        topics.stream()
+                .sorted((a, b) -> Integer.compare(pw(b.getPriority()), pw(a.getPriority())))
+                .map(TopicPriorityDto::getTopic)
+                .forEach(ordered::add);
+
+        List<String> finalTopics = new ArrayList<>(ordered);
+        if (finalTopics.isEmpty()) finalTopics.add("General Revision");
+
+        List<StudyPlanDayDto> days = new ArrayList<>();
+        int d = 1;
+        for (String t : finalTopics) {
+            days.add(StudyPlanDayDto.builder().day("Day " + d++)
+                    .tasks(List.of("Read notes for " + t, "Review flashcards for " + t, "Practice quiz for " + t))
+                    .build());
+        }
 
         analysis.setStudyPlan(objectMapper.writeValueAsString(days));
-        analysis.setAnalyzedAt(LocalDateTime.now());
         materialAnalysisRepository.save(analysis);
-
         material.setProcessingStatus("PLAN_READY");
         materialRepository.save(material);
 
-        return StudyPlanResponseDto.builder()
-                .materialId(material.getId())
-                .days(days)
-                .build();
+        return StudyPlanResponseDto.builder().materialId(material.getId()).days(days).build();
     }
+
+    // ═══════════════════════════════════════
+    // RESPONSE PARSING
+    // ═══════════════════════════════════════
+
+    /**
+     * Parse flashcards from /generate_keypoints response.
+     * Response: { "key_points": [...], "flashcards": [{"front":"...", "back":"..."}] }
+     */
+    private List<FlashcardDto> parseFlashcards(Map<String, Object> resp) {
+        List<FlashcardDto> result = new ArrayList<>();
+
+        // Direct flashcards
+        if (resp.get("flashcards") instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> m) {
+                    String f = safe(m.get("front")), b = safe(m.get("back"));
+                    if (!f.isBlank() && !b.isBlank())
+                        result.add(FlashcardDto.builder().front(f).back(b).build());
+                }
+            }
+        }
+
+        // Fallback: key_points as flashcards
+        if (result.isEmpty() && resp.get("key_points") instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> m) {
+                    String text = safe(m.get("text"));
+                    String topic = safe(m.get("topic_label"));
+                    if (!text.isBlank())
+                        result.add(FlashcardDto.builder()
+                                .front("Key: " + (topic.isBlank() ? "Study" : topic))
+                                .back(text).build());
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Parse important topics from /rank_importance response.
+     * Response: { "important_topics": ["Democracy", "Core Concepts", ...], "important_subtopics": [...] }
+     *
+     * FIXED: Build TopicPriorityDto directly from the list.
+     * Priority assigned by position: first third = HIGH, second = MEDIUM, rest = LOW.
+     */
+    private List<TopicPriorityDto> parseImportantTopics(Map<String, Object> resp) {
+        List<TopicPriorityDto> result = new ArrayList<>();
+
+        // Get ranked topic names
+        List<String> topicNames = new ArrayList<>();
+        if (resp.get("important_topics") instanceof List<?> list) {
+            for (Object item : list) {
+                String s = safe(item);
+                if (!s.isBlank()) topicNames.add(s);
+            }
+        }
+
+        // Get subtopics
+        List<String> subtopicNames = new ArrayList<>();
+        if (resp.get("important_subtopics") instanceof List<?> list) {
+            for (Object item : list) {
+                String s = safe(item);
+                if (!s.isBlank()) subtopicNames.add(s);
+            }
+        }
+
+        // Build TopicPriorityDto for each topic
+        int total = topicNames.size();
+        for (int i = 0; i < total; i++) {
+            String name = topicNames.get(i);
+
+            // Priority by ranking position
+            String priority;
+            if (total <= 2) {
+                priority = "HIGH";
+            } else if (i < total / 3.0) {
+                priority = "HIGH";
+            } else if (i < total * 2.0 / 3.0) {
+                priority = "MEDIUM";
+            } else {
+                priority = "LOW";
+            }
+
+            // Score decreasing from top
+            double score = (total - i) * 2.0;
+
+            // Match subtopics that contain the topic name (or are the same)
+            List<String> matchedSubs = new ArrayList<>();
+            String nameLower = name.toLowerCase();
+            for (String sub : subtopicNames) {
+                if (sub.toLowerCase().contains(nameLower) || nameLower.contains(sub.toLowerCase())) {
+                    matchedSubs.add(sub);
+                }
+            }
+            if (matchedSubs.isEmpty()) {
+                matchedSubs.add(name);
+            }
+
+            result.add(TopicPriorityDto.builder()
+                    .topic(name)
+                    .priority(priority)
+                    .score(score)
+                    .subtopics(matchedSubs)
+                    .build());
+        }
+
+        return result;
+    }
+
+    /**
+     * Parse quiz questions from /generate_quiz response.
+     */
+    private List<QuizQuestionDto> parseQuizQuestions(Map<String, Object> resp) {
+        List<QuizQuestionDto> result = new ArrayList<>();
+        if (!(resp.get("questions") instanceof List<?> list)) return result;
+
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> m)) continue;
+
+            List<String> opts = new ArrayList<>();
+            String a = safe(m.get("option_a")), b = safe(m.get("option_b")), c = safe(m.get("option_c"));
+            if (!a.isBlank()) opts.add(a);
+            if (!b.isBlank()) opts.add(b);
+            if (!c.isBlank()) opts.add(c);
+
+            String correct = safe(m.get("correct_option")).toUpperCase();
+            String answer = switch (correct) {
+                case "B" -> b;
+                case "C" -> c;
+                default -> a;
+            };
+
+            String q = safe(m.get("question"));
+            String topic = safe(m.get("topic_label"));
+
+            if (!q.isBlank()) {
+                result.add(QuizQuestionDto.builder()
+                        .question(q).answer(answer).topic(topic).options(opts).build());
+            }
+        }
+        return result;
+    }
+
+    // ═══════════════════════════════════════
+    // HELPERS
+    // ═══════════════════════════════════════
 
     private Material getOwnedMaterial(Long materialId, User user) {
-        Material material = materialRepository.findById(materialId)
+        Material m = materialRepository.findById(materialId)
                 .orElseThrow(() -> new RuntimeException("Material not found"));
-
-        if (material.getUser() == null || user == null || !material.getUser().getId().equals(user.getId())) {
-            throw new AccessDeniedException("User cannot access the material");
-        }
-
-        return material;
+        if (m.getUser() == null || user == null || !m.getUser().getId().equals(user.getId()))
+            throw new AccessDeniedException("Access denied");
+        return m;
     }
 
-    private MaterialAnalysis getOrCreateAnalysis(Material material) {
-        return materialAnalysisRepository.findByMaterialId(material.getId())
-                .orElse(MaterialAnalysis.builder().material(material).build());
+    private MaterialAnalysis getOrCreateAnalysis(Material m) {
+        return materialAnalysisRepository.findByMaterialId(m.getId())
+                .orElse(MaterialAnalysis.builder().material(m).build());
     }
 
-    private String getCleanMaterialText(Material material) {
-        String extractedText = material.getExtractedText();
-        if (!StringUtils.hasText(extractedText)) {
-            throw new IllegalStateException("Material extracted text is empty.");
-        }
-
-        return extractedText
-                .replace("\u0000", "")
+    private String getCleanMaterialText(Material m) {
+        String t = m.getExtractedText();
+        if (!StringUtils.hasText(t)) throw new IllegalStateException("No extracted text.");
+        return t.replace("\u0000", "")
                 .replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]", "")
                 .replaceAll("[^\\p{Print}\\r\\n\\t]", " ")
-                .replaceAll("\\s+", " ")
                 .trim();
     }
 
-    private List<StudyPlanDayDto> buildStudyPlan(List<String> weakTopics, List<TopicPriorityDto> importantTopics) {
-        List<String> priorityOrderedTopics = importantTopics.stream()
-                .sorted((a, b) -> Integer.compare(priorityWeight(b.getPriority()), priorityWeight(a.getPriority())))
-                .map(TopicPriorityDto::getTopic)
-                .distinct()
-                .collect(Collectors.toList());
-
-        LinkedHashSet<String> ordered = new LinkedHashSet<>();
-        ordered.addAll(weakTopics);
-        ordered.addAll(priorityOrderedTopics);
-
-        List<String> finalTopics = new ArrayList<>(ordered);
-        if (finalTopics.isEmpty()) {
-            finalTopics.add("General Revision");
-        }
-
-        List<StudyPlanDayDto> plan = new ArrayList<>();
-        int day = 1;
-
-        for (String topic : finalTopics) {
-            plan.add(StudyPlanDayDto.builder()
-                    .day("Day " + day++)
-                    .tasks(List.of(
-                            "Read notes for " + topic,
-                            "Review flashcards for " + topic,
-                            "Practice quiz again for " + topic
-                    ))
-                    .build());
-        }
-
-        return plan;
-    }
-
-    private List<FlashcardDto> normalizeFlashcards(Map<String, Object> response) {
-        Object flashcardsObj = response.get("flashcards");
-
-        if (flashcardsObj instanceof List<?> list && !list.isEmpty()) {
-            List<FlashcardDto> result = new ArrayList<>();
-            for (Object item : list) {
-                if (item instanceof Map<?, ?> map) {
-                    result.add(FlashcardDto.builder()
-                            .front(safe(map.get("front")))
-                            .back(safe(map.get("back")))
-                            .build());
-                }
-            }
-            if (!result.isEmpty()) return result;
-        }
-
-        Object keyPointsObj = response.get("key_points");
-        if (keyPointsObj instanceof List<?> list && !list.isEmpty()) {
-            List<FlashcardDto> result = new ArrayList<>();
-            for (Object item : list) {
-                String text = safe(item);
-                if (!text.isBlank()) {
-                    result.add(FlashcardDto.builder()
-                            .front(text)
-                            .back("Review this key point.")
-                            .build());
-                }
-            }
-            return result;
-        }
-
-        return new ArrayList<>();
-    }
-
-    private List<TopicPriorityDto> normalizeTopics(Map<String, Object> response) {
-        Object topicsObj = response.get("topics");
-        if (!(topicsObj instanceof List<?> list)) {
-            return new ArrayList<>();
-        }
-
-        List<TopicPriorityDto> result = new ArrayList<>();
-
-        for (Object item : list) {
-            if (!(item instanceof Map<?, ?> map)) continue;
-
-            String topic = safe(firstNonNull(map.get("topic"), map.get("topic_label")));
-            String priority = safe(firstNonNull(map.get("priority"), map.get("importance"), "MEDIUM"));
-            Double score = parseDouble(firstNonNull(map.get("score"), map.get("importance_score")));
-
-            List<String> subtopics = new ArrayList<>();
-            Object subtopicsObj = map.get("subtopics");
-            if (subtopicsObj instanceof List<?> subList) {
-                for (Object sub : subList) {
-                    subtopics.add(safe(sub));
-                }
-            }
-
-            if (!topic.isBlank()) {
-                result.add(TopicPriorityDto.builder()
-                        .topic(topic)
-                        .priority(priority.toUpperCase())
-                        .score(score)
-                        .subtopics(subtopics)
-                        .build());
-            }
-        }
-
-        result.sort((a, b) -> Integer.compare(priorityWeight(b.getPriority()), priorityWeight(a.getPriority())));
-        return result;
-    }
-
-    private List<QuizQuestionDto> normalizeQuestions(Map<String, Object> response, String defaultTopic) {
-        Object questionsObj = response.get("questions");
-        if (!(questionsObj instanceof List<?> list)) {
-            return new ArrayList<>();
-        }
-
-        List<QuizQuestionDto> result = new ArrayList<>();
-
-        for (Object item : list) {
-            if (!(item instanceof Map<?, ?> map)) continue;
-
-            List<String> options = new ArrayList<>();
-            Object optionsObj = map.get("options");
-            if (optionsObj instanceof List<?> optionList) {
-                for (Object option : optionList) {
-                    options.add(safe(option));
-                }
-            }
-
-            result.add(QuizQuestionDto.builder()
-                    .question(safe(firstNonNull(map.get("question"), map.get("text"))))
-                    .answer(safe(map.get("answer")))
-                    .topic(safe(firstNonNull(map.get("topic"), defaultTopic)))
-                    .options(options)
-                    .build());
-        }
-
-        return result;
-    }
-
-    private List<TopicPriorityDto> readTopics(MaterialAnalysis analysis) {
+    private List<TopicPriorityDto> readTopics(MaterialAnalysis a) {
         try {
-            if (!StringUtils.hasText(analysis.getImportantTopics())) return new ArrayList<>();
-            return objectMapper.readValue(analysis.getImportantTopics(), new TypeReference<List<TopicPriorityDto>>() {});
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
+            if (a == null || !StringUtils.hasText(a.getImportantTopics())) return new ArrayList<>();
+            return objectMapper.readValue(a.getImportantTopics(), new TypeReference<>() {});
+        } catch (Exception e) { return new ArrayList<>(); }
     }
 
-    private List<QuizQuestionDto> readQuestions(MaterialAnalysis analysis) {
+    private List<QuizQuestionDto> readQuestions(MaterialAnalysis a) {
         try {
-            if (!StringUtils.hasText(analysis.getQuestions())) return new ArrayList<>();
-            return objectMapper.readValue(analysis.getQuestions(), new TypeReference<List<QuizQuestionDto>>() {});
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
+            if (a == null || !StringUtils.hasText(a.getQuestions())) return new ArrayList<>();
+            return objectMapper.readValue(a.getQuestions(), new TypeReference<>() {});
+        } catch (Exception e) { return new ArrayList<>(); }
     }
 
-    private List<String> readWeakTopics(MaterialAnalysis analysis) {
+    private List<String> readWeakTopics(MaterialAnalysis a) {
         try {
-            if (!StringUtils.hasText(analysis.getWeakTopics())) return new ArrayList<>();
-            return objectMapper.readValue(analysis.getWeakTopics(), new TypeReference<List<String>>() {});
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
+            if (a == null || !StringUtils.hasText(a.getWeakTopics())) return new ArrayList<>();
+            return objectMapper.readValue(a.getWeakTopics(), new TypeReference<>() {});
+        } catch (Exception e) { return new ArrayList<>(); }
     }
 
-    private int priorityWeight(String priority) {
-        if (priority == null) return 0;
-        return switch (priority.toUpperCase()) {
-            case "HIGH" -> 3;
-            case "MEDIUM" -> 2;
-            case "LOW" -> 1;
-            default -> 0;
-        };
+    private int pw(String p) {
+        if (p == null) return 0;
+        return switch (p.toUpperCase()) { case "HIGH" -> 3; case "MEDIUM" -> 2; case "LOW" -> 1; default -> 0; };
     }
 
-    private String safe(Object value) {
-        return value == null ? "" : value.toString();
-    }
-
-    private Object firstNonNull(Object... values) {
-        for (Object value : values) {
-            if (value != null) return value;
-        }
-        return null;
-    }
-
-    private Double parseDouble(Object value) {
-        if (value == null) return null;
-        try {
-            return Double.parseDouble(value.toString());
-        } catch (Exception e) {
-            return null;
-        }
-    }
+    private String safe(Object v) { return v == null ? "" : v.toString(); }
 }

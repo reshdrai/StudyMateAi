@@ -1,5 +1,6 @@
 package com.resh.studymateaibackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -23,6 +24,7 @@ public class Material {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore
     private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -46,6 +48,7 @@ public class Material {
     private String processingStatus = "uploaded";
 
     @OneToMany(mappedBy = "material", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private List<MaterialStudyPlan> studyPlans;
 
     @CreationTimestamp
@@ -56,10 +59,12 @@ public class Material {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @OneToOne(mappedBy = "material", cascade = CascadeType.ALL, orphanRemoval = true)
+    /**
+     * LAZY + JsonIgnore: this prevents the lob stream error.
+     * When listing materials, we do NOT need the full analysis blob.
+     * When we need it (details page), we fetch it explicitly via repository.
+     */
+    @OneToOne(mappedBy = "material", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @JsonIgnore
     private MaterialAnalysis analysis;
-
-    public String getFileUrl() {
-        return fileUrl;
-    }
 }

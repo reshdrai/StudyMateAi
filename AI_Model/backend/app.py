@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import tempfile
 import os
+import traceback
 
 from backend.pipeline import (
     process_text_structure,
@@ -45,10 +46,13 @@ class TopicSummaryRequest(BaseModel):
 
 class QuizRequest(BaseModel):
     extracted_text: str
-    chunks: List[ChunkItemRequest]
+    chunks: Optional[List[ChunkItemRequest]] = None
     topic_label: str
     subtopic_label: Optional[str] = None
     max_questions: int = 5
+    # Also accept these alternate field names from Spring Boot
+    text: Optional[str] = None
+    num_questions: Optional[int] = None
 
 
 # -----------------------------
@@ -144,14 +148,26 @@ def root():
     return {"message": "StudyMate AI backend is running"}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # -----------------------------
 # Text processing
 # -----------------------------
 
 @app.post("/process_notes", response_model=StructuredNotesResponse)
 def process_notes(req: NotesRequest):
-    cleaned_text = _truncate_text(req.text)
-    return process_text_structure(cleaned_text)
+    try:
+        cleaned_text = _truncate_text(req.text)
+        return process_text_structure(cleaned_text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] process_notes: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -----------------------------
@@ -167,9 +183,16 @@ async def process_notes_image(file: UploadFile = File(...)):
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Uploaded image is empty.")
 
-    extracted_text = analyze_image_text(image_bytes)
-    extracted_text = _truncate_text(extracted_text)
-    return process_text_structure(extracted_text)
+    try:
+        extracted_text = analyze_image_text(image_bytes)
+        extracted_text = _truncate_text(extracted_text)
+        return process_text_structure(extracted_text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] process_notes_image: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -----------------------------
@@ -196,6 +219,12 @@ async def process_notes_pdf(file: UploadFile = File(...)):
 
         return process_text_structure(extracted_text)
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] process_notes_pdf: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -207,8 +236,23 @@ async def process_notes_pdf(file: UploadFile = File(...)):
 
 @app.post("/generate_keypoints", response_model=KeyPointsResponse)
 def generate_keypoints(req: NotesRequest):
-    cleaned_text = _truncate_text(req.text)
-    return generate_keypoints_and_flashcards(cleaned_text)
+    try:
+        cleaned_text = _truncate_text(req.text)
+        result = generate_keypoints_and_flashcards(cleaned_text)
+
+        # Ensure we always return valid structure
+        if not result.get("key_points"):
+            result["key_points"] = []
+        if not result.get("flashcards"):
+            result["flashcards"] = []
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] generate_keypoints: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -----------------------------
@@ -217,8 +261,23 @@ def generate_keypoints(req: NotesRequest):
 
 @app.post("/rank_importance", response_model=ImportanceResponse)
 def rank_importance(req: NotesRequest):
-    cleaned_text = _truncate_text(req.text)
-    return rank_topics_and_subtopics(cleaned_text)
+    try:
+        cleaned_text = _truncate_text(req.text)
+        result = rank_topics_and_subtopics(cleaned_text)
+
+        # Ensure we always return valid structure
+        if not result.get("important_topics"):
+            result["important_topics"] = ["General Topic"]
+        if not result.get("important_subtopics"):
+            result["important_subtopics"] = ["General Subtopic"]
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] rank_importance: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -----------------------------
@@ -230,12 +289,19 @@ def summarize_topic(req: TopicSummaryRequest):
     if not req.extracted_text or not req.extracted_text.strip():
         raise HTTPException(status_code=400, detail="Extracted text is empty.")
 
-    return summarize_selected_topic(
-        extracted_text=req.extracted_text,
-        chunks=[c.model_dump() for c in req.chunks],
-        topic_label=req.topic_label,
-        subtopic_label=req.subtopic_label,
-    )
+    try:
+        return summarize_selected_topic(
+            extracted_text=req.extracted_text,
+            chunks=[c.model_dump() for c in req.chunks],
+            topic_label=req.topic_label,
+            subtopic_label=req.subtopic_label,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] summarize_topic: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -----------------------------
@@ -244,13 +310,39 @@ def summarize_topic(req: TopicSummaryRequest):
 
 @app.post("/generate_quiz", response_model=QuizResponse)
 def generate_quiz(req: QuizRequest):
-    if not req.extracted_text or not req.extracted_text.strip():
-        raise HTTPException(status_code=400, detail="Extracted text is empty.")
+    try:
+        # Handle alternate field names from Spring Boot
+        extracted_text = req.extracted_text or req.text or ""
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="Extracted text is empty.")
 
-    return generate_quiz_for_topic(
-        extracted_text=req.extracted_text,
-        chunks=[c.model_dump() for c in req.chunks],
-        topic_label=req.topic_label,
-        subtopic_label=req.subtopic_label,
-        max_questions=req.max_questions,
-    )
+        max_q = req.max_questions or req.num_questions or 5
+
+        # If chunks not provided, process the text first
+        chunks_data = []
+        if req.chunks:
+            chunks_data = [c.model_dump() for c in req.chunks]
+        else:
+            # Process text to get chunks
+            structured = process_text_structure(extracted_text)
+            chunks_data = structured.get("chunks", [])
+
+        result = generate_quiz_for_topic(
+            extracted_text=extracted_text,
+            chunks=chunks_data,
+            topic_label=req.topic_label or "General Topic",
+            subtopic_label=req.subtopic_label,
+            max_questions=max_q,
+        )
+
+        # Ensure we always return valid structure
+        if not result.get("questions"):
+            result["questions"] = []
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] generate_quiz: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

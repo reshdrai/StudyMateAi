@@ -1,4 +1,4 @@
-enum NoteStatus { aiReady, analyzing, none }
+enum NoteStatus { aiReady, analyzing, uploaded, none }
 
 enum NoteType { pdf, image, text }
 
@@ -7,18 +7,18 @@ class NoteItem {
   final String title;
   final String dateLabel;
   final NoteType type;
-  final String sizeOrKind;
+  final String subjectName;
   final NoteStatus status;
-  final String? previewImagePath;
+  final String? fileUrl;
 
   NoteItem({
     required this.id,
     required this.title,
     required this.dateLabel,
     required this.type,
-    required this.sizeOrKind,
+    required this.subjectName,
     required this.status,
-    this.previewImagePath,
+    this.fileUrl,
   });
 
   String get typeLabel {
@@ -34,41 +34,87 @@ class NoteItem {
 
   String get metaLabel {
     final left = type == NoteType.image ? "JPG" : typeLabel;
-    return "$left • $sizeOrKind";
+    final sub = subjectName.isNotEmpty ? subjectName : "General";
+    return "$left • $sub";
   }
 
   String get statusLabel {
     switch (status) {
       case NoteStatus.aiReady:
-        return "✦ AI READY";
+        return "AI READY";
       case NoteStatus.analyzing:
-        return "⏳ ANALYZING...";
+        return "ANALYZING";
+      case NoteStatus.uploaded:
+        return "UPLOADED";
       case NoteStatus.none:
         return "";
     }
   }
 
-  factory NoteItem.fromJson(Map<String, dynamic> json) => NoteItem(
-    id: int.tryParse((json["id"] ?? "0").toString()) ?? 0,
-    title: json["title"] ?? "",
-    dateLabel: json["dateLabel"] ?? "",
-    type: _typeFrom(json["type"]),
-    sizeOrKind: json["sizeOrKind"] ?? "",
-    status: _statusFrom(json["status"]),
-    previewImagePath: json["previewImagePath"],
-  );
+  /// Maps from backend MaterialCardResponse JSON:
+  /// {
+  ///   "id": 1,
+  ///   "title": "Chapter 1",
+  ///   "subjectName": "Comp Sci",
+  ///   "fileType": "application/pdf",
+  ///   "fileUrl": "/uploads/...",
+  ///   "createdAt": "2025-04-09T...",
+  ///   "processingStatus": "UPLOADED"
+  /// }
+  factory NoteItem.fromJson(Map<String, dynamic> json) {
+    return NoteItem(
+      id: _parseInt(json["id"]),
+      title: (json["title"] ?? "Untitled").toString(),
+      dateLabel: _formatDate(json["createdAt"]),
+      type: _typeFromMime(json["fileType"]),
+      subjectName: (json["subjectName"] ?? "General").toString(),
+      status: _statusFromProcessing(json["processingStatus"]),
+      fileUrl: json["fileUrl"]?.toString(),
+    );
+  }
 
-  static NoteType _typeFrom(dynamic v) {
+  static int _parseInt(dynamic v) {
+    if (v is int) return v;
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  static NoteType _typeFromMime(dynamic v) {
     final s = (v ?? "").toString().toLowerCase();
-    if (s == "pdf") return NoteType.pdf;
-    if (s == "image") return NoteType.image;
+    if (s.contains("pdf")) return NoteType.pdf;
+    if (s.contains("image") || s.contains("jpg") || s.contains("png")) {
+      return NoteType.image;
+    }
     return NoteType.text;
   }
 
-  static NoteStatus _statusFrom(dynamic v) {
-    final s = (v ?? "").toString().toLowerCase();
-    if (s == "ai_ready") return NoteStatus.aiReady;
-    if (s == "analyzing") return NoteStatus.analyzing;
+  static NoteStatus _statusFromProcessing(dynamic v) {
+    final s = (v ?? "").toString().toUpperCase();
+    if (s.contains("READY") || s.contains("OVERVIEW") || s.contains("QUIZ") || s.contains("PLAN")) {
+      return NoteStatus.aiReady;
+    }
+    if (s.contains("ANALYZING") || s.contains("PROCESSING")) {
+      return NoteStatus.analyzing;
+    }
+    if (s.contains("UPLOADED")) {
+      return NoteStatus.uploaded;
+    }
     return NoteStatus.none;
+  }
+
+  static String _formatDate(dynamic v) {
+    if (v == null) return "";
+    final s = v.toString();
+    // "2025-04-09T14:30:00" -> "Apr 9"
+    try {
+      final dt = DateTime.parse(s);
+      final months = [
+        '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      return "${months[dt.month]} ${dt.day}";
+    } catch (_) {
+      return s.length > 10 ? s.substring(0, 10) : s;
+    }
   }
 }
