@@ -53,21 +53,17 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
     }
   }
 
-  void _goQuizAll() {
+  /// Opens the topic selection page where user taps a topic → gets choice dialog
+  void _openQuizSelection() {
+    if (_overview == null || _overview!.importantTopics.isEmpty) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => QuizPage(materialId: widget.materialId),
-      ),
-    );
-  }
-
-  void _goQuizTopic(String topicLabel) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            QuizPage(materialId: widget.materialId, topicLabel: topicLabel),
+        builder: (_) => QuizTopicSelectionPage(
+          materialId: widget.materialId,
+          materialTitle: widget.title,
+          topics: _overview!.importantTopics,
+        ),
       ),
     );
   }
@@ -185,14 +181,14 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
         ),
       ],
 
-      // Important Topics — tappable for quiz
+      // Important Topics — each card is tappable to go to quiz selection
       if (o.importantTopics.isNotEmpty) ...[
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 24, 18, 0),
             child: AiSectionHeader(
               title: 'Important Topics',
-              subtitle: 'Tap a topic to quiz yourself',
+              subtitle: 'Tap a topic to start a quiz',
               icon: Icons.bar_chart_rounded,
             ),
           ),
@@ -204,7 +200,10 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
               child: _TopicCard(
                 topic: o.importantTopics[i],
                 rank: i + 1,
-                onQuiz: () => _goQuizTopic(o.importantTopics[i].topic),
+                onTap: () {
+                  // Tap topic → show quiz choice sheet directly
+                  _showQuizChoice(o.importantTopics[i].topic);
+                },
               ),
             ),
             childCount: o.importantTopics.length,
@@ -231,10 +230,10 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
               Expanded(
                 child: _ActionCard(
                   icon: Icons.quiz_outlined,
-                  label: 'Quiz All Topics',
-                  description: 'Test everything',
+                  label: 'Take Quiz',
+                  description: 'Choose topic or all',
                   color: AppColors.primary,
-                  onTap: _goQuizAll,
+                  onTap: _openQuizSelection,
                 ),
               ),
               const SizedBox(width: 12),
@@ -242,7 +241,7 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
                 child: _ActionCard(
                   icon: Icons.calendar_today_outlined,
                   label: 'Study Plan',
-                  description: 'Personalized schedule',
+                  description: 'GA-optimized schedule',
                   color: AppColors.tealAccent,
                   onTap: _goStudyPlan,
                 ),
@@ -254,9 +253,155 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
       const SliverToBoxAdapter(child: SizedBox(height: 32)),
     ];
   }
+
+  void _showQuizChoice(String topicName) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.outline,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Icon(Icons.quiz_outlined, size: 36, color: AppColors.primary),
+            const SizedBox(height: 12),
+            const Text(
+              'Generate Quiz',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'How would you like to be quizzed?',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+            ),
+            const SizedBox(height: 24),
+
+            // This topic only
+            _QuizChoiceTile(
+              icon: Icons.filter_alt_outlined,
+              title: 'This Topic Only',
+              subtitle: '$topicName — 3-4 focused questions',
+              color: AppColors.primary,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => QuizPage(
+                      materialId: widget.materialId,
+                      topicLabel: topicName,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // All topics
+            _QuizChoiceTile(
+              icon: Icons.all_inclusive,
+              title: 'All Topics',
+              subtitle: 'Comprehensive quiz grouped by topic',
+              color: AppColors.tealAccent,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => QuizPage(materialId: widget.materialId),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ═══════════════════ Sub-widgets ═══════════════════
+
+class _QuizChoiceTile extends StatelessWidget {
+  final IconData icon;
+  final String title, subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _QuizChoiceTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _Banner extends StatelessWidget {
   final int flashcards, topics;
@@ -442,120 +587,90 @@ class _FlashCardState extends State<_FlashCard> {
   }
 }
 
+/// Topic card — the ENTIRE card is tappable (no separate quiz button)
 class _TopicCard extends StatelessWidget {
   final TopicPriorityItem topic;
   final int rank;
-  final VoidCallback onQuiz;
+  final VoidCallback onTap;
+
   const _TopicCard({
     required this.topic,
     required this.rank,
-    required this.onQuiz,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.outline),
+          ),
+          child: Row(
             children: [
               Container(
-                width: 30,
-                height: 30,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   color: AppColors.primary.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Center(
                   child: Text(
                     '#$rank',
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: FontWeight.w800,
                       color: AppColors.primary,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  topic.topic,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              PriorityBadge(priority: topic.priority),
-            ],
-          ),
-          if (topic.subtopics.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: topic.subtopics
-                  .map(
-                    (s) => Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      topic.topic,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
                       ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceSoft,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        s,
-                        style: const TextStyle(
+                    ),
+                    if (topic.subtopics.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        topic.subtopics.take(3).join(' • '),
+                        style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w600,
                           color: AppColors.textSecondary,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-          const SizedBox(height: 10),
-          // Quiz this topic button
-          InkWell(
-            onTap: onQuiz,
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(8),
+                    ],
+                  ],
+                ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.quiz_outlined, size: 14, color: AppColors.primary),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Quiz this topic',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 6),
+              PriorityBadge(priority: topic.priority),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
+                size: 20,
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -51,6 +51,24 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
     _reload();
   }
 
+  void _onNavTap(int i) {
+    setState(() => _navIndex = i);
+    switch (i) {
+      case 0:
+        context.go(AppRoutes.home);
+        break;
+      case 1:
+        // Already on library
+        break;
+      case 2:
+        context.go(AppRoutes.analytics);
+        break;
+      case 3:
+        // Settings placeholder
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -69,12 +87,14 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 90),
                 children: [
-                  // ── Header ──
+                  // Header
                   Row(
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.primary.withOpacity(0.10),
                           borderRadius: BorderRadius.circular(8),
@@ -99,8 +119,7 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
                   const SizedBox(height: 10),
                   const Text(
                     "Notes Library",
-                    style:
-                        TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -140,11 +159,11 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
                       itemCount: notes.length,
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 0.78,
-                      ),
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            childAspectRatio: 0.78,
+                          ),
                       itemBuilder: (_, i) {
                         final n = notes[i];
                         return _NoteCard(
@@ -185,26 +204,27 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
         currentIndex: _navIndex,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondary,
-        onTap: (i) {
-          setState(() => _navIndex = i);
-          if (i == 0) context.go(AppRoutes.home);
-          if (i == 1) context.go(AppRoutes.library);
-        },
+        type: BottomNavigationBarType.fixed,
+        onTap: _onNavTap,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
             label: "Home",
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.menu_book_outlined),
+            activeIcon: Icon(Icons.menu_book),
             label: "Library",
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month_outlined),
-            label: "Schedule",
+            icon: Icon(Icons.bar_chart_outlined),
+            activeIcon: Icon(Icons.bar_chart),
+            label: "Analytics",
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
+            activeIcon: Icon(Icons.settings),
             label: "Settings",
           ),
         ],
@@ -233,19 +253,13 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
           const SizedBox(height: 16),
           const Text(
             "No notes yet",
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
-            ),
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
           ),
           const SizedBox(height: 8),
           const Text(
             "Upload a PDF or text file to get started.\nAI will extract key points and create quizzes.",
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              height: 1.4,
-            ),
+            style: TextStyle(color: AppColors.textSecondary, height: 1.4),
           ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
@@ -253,8 +267,7 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
             icon: const Icon(Icons.file_upload_outlined, size: 18),
             label: const Text('Upload Notes'),
             style: ElevatedButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -280,7 +293,6 @@ class _CircleIconButton extends StatelessWidget {
     return Material(
       color: AppColors.surface,
       shape: const CircleBorder(),
-      elevation: 0,
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
@@ -313,8 +325,10 @@ class _SearchBar extends StatelessWidget {
         hintText: "Search your notes...",
         filled: true,
         fillColor: AppColors.surface,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: AppColors.outline),
@@ -334,7 +348,6 @@ class _CategoryChips extends StatelessWidget {
     required this.active,
     required this.onSelect,
   });
-
   final List<String> tabs;
   final String active;
   final ValueChanged<String> onSelect;
@@ -350,14 +363,12 @@ class _CategoryChips extends StatelessWidget {
         itemBuilder: (_, i) {
           final t = tabs[i];
           final isActive = t == active;
-
           return InkWell(
             borderRadius: BorderRadius.circular(999),
             onTap: () => onSelect(t),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
               decoration: BoxDecoration(
                 color: isActive ? AppColors.primary : AppColors.surface,
                 borderRadius: BorderRadius.circular(999),
@@ -396,10 +407,8 @@ class _NoteCard extends StatelessWidget {
     final statusColor = note.status == NoteStatus.aiReady
         ? AppColors.success
         : note.status == NoteStatus.analyzing
-            ? AppColors.warning
-            : AppColors.textSecondary;
-
-    final statusBg = statusColor.withOpacity(0.10);
+        ? AppColors.warning
+        : AppColors.textSecondary;
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
@@ -414,7 +423,6 @@ class _NoteCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Thumbnail area
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -424,24 +432,28 @@ class _NoteCard extends StatelessWidget {
                 ),
                 child: Stack(
                   children: [
-                    // Status badge
                     if (hasStatus)
                       Positioned(
                         top: 8,
                         right: 8,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: statusBg,
+                            color: statusColor.withOpacity(0.10),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (note.status == NoteStatus.aiReady)
-                                Icon(Icons.check_circle,
-                                    size: 12, color: statusColor)
+                                Icon(
+                                  Icons.check_circle,
+                                  size: 12,
+                                  color: statusColor,
+                                )
                               else if (note.status == NoteStatus.analyzing)
                                 SizedBox(
                                   width: 12,
@@ -449,7 +461,8 @@ class _NoteCard extends StatelessWidget {
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                     valueColor: AlwaysStoppedAnimation(
-                                        statusColor),
+                                      statusColor,
+                                    ),
                                   ),
                                 ),
                               const SizedBox(width: 4),
@@ -468,7 +481,6 @@ class _NoteCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                    // File type icon
                     Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -477,8 +489,8 @@ class _NoteCard extends StatelessWidget {
                             note.type == NoteType.pdf
                                 ? Icons.picture_as_pdf_outlined
                                 : note.type == NoteType.image
-                                    ? Icons.image_outlined
-                                    : Icons.description_outlined,
+                                ? Icons.image_outlined
+                                : Icons.description_outlined,
                             size: 36,
                             color: AppColors.primary.withOpacity(0.7),
                           ),
@@ -503,10 +515,7 @@ class _NoteCard extends StatelessWidget {
               note.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 13,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
             ),
             const SizedBox(height: 3),
             Text(

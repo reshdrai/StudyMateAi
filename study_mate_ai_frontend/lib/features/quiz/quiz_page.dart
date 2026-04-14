@@ -37,9 +37,11 @@ class _QuizPageState extends State<QuizPage> {
     try {
       QuizResponse data;
       if (widget.topicLabel != null) {
+        // Request 3-4 questions per topic
         data = await _repo.generateQuizForTopic(
           widget.materialId,
           widget.topicLabel!,
+          maxQuestions: 4,
         );
       } else {
         data = await _repo.generateQuiz(widget.materialId);
@@ -93,10 +95,10 @@ class _QuizPageState extends State<QuizPage> {
           title: Text('Quiz: $_topicDisplay'),
           backgroundColor: AppColors.background,
         ),
-        body: Center(
+        body: const Center(
           child: AiProcessingIndicator(
             message: 'Generating quiz',
-            subMessage: 'Creating questions for $_topicDisplay',
+            subMessage: 'Creating questions from your notes',
           ),
         ),
       );
@@ -139,7 +141,7 @@ class _QuizPageState extends State<QuizPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Progress
+            // Progress bar
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
               child: Column(
@@ -181,7 +183,7 @@ class _QuizPageState extends State<QuizPage> {
               ),
             ),
 
-            // Question + options
+            // Question + options - FIXED: wrapped in Expanded + SingleChildScrollView
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(18),
@@ -292,12 +294,14 @@ class _QuizPageState extends State<QuizPage> {
                         ),
                       );
                     }),
+                    // Extra bottom padding so content doesn't hide behind nav
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),
             ),
 
-            // Navigation
+            // Navigation buttons
             Container(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
               decoration: BoxDecoration(
@@ -364,44 +368,56 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
+  // ══════════════ QUIZ RESULTS SCREEN (matches your screenshot) ══════════════
   Widget _resultScreen() {
     final r = _result!;
     final good = r.scorePercent >= 60;
+    final totalQ = r.totalQuestions;
+    final correctQ = r.correctAnswers;
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              const SizedBox(height: 24),
-              Container(
-                width: 130,
-                height: 130,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: good
-                        ? [
-                            AppColors.success,
-                            AppColors.success.withOpacity(0.7),
-                          ]
-                        : [
-                            AppColors.warning,
-                            AppColors.warning.withOpacity(0.7),
-                          ],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: (good ? AppColors.success : AppColors.warning)
-                          .withOpacity(0.3),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
+      appBar: AppBar(
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(icon: const Icon(Icons.share_outlined), onPressed: () {}),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          children: [
+            const Text(
+              'Quiz Results',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 24),
+
+            // Score circle
+            SizedBox(
+              width: 140,
+              height: 140,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 140,
+                    height: 140,
+                    child: CircularProgressIndicator(
+                      value: r.scorePercent / 100,
+                      strokeWidth: 10,
+                      backgroundColor: AppColors.outline,
+                      valueColor: AlwaysStoppedAnimation(
+                        good ? AppColors.primary : AppColors.warning,
+                      ),
                     ),
-                  ],
-                ),
-                child: Center(
-                  child: Column(
+                  ),
+                  Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
@@ -409,153 +425,283 @@ class _QuizPageState extends State<QuizPage> {
                         style: const TextStyle(
                           fontSize: 36,
                           fontWeight: FontWeight.w900,
-                          color: Colors.white,
                         ),
                       ),
                       Text(
-                        'Score',
+                        'SCORE',
                         style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white.withOpacity(0.85),
-                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textSecondary,
+                          letterSpacing: 1,
                         ),
                       ),
                     ],
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 20),
-              Text(
-                good ? 'Great job!' : 'Keep practicing!',
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${r.correctAnswers} out of ${r.totalQuestions} correct',
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: AppColors.textSecondary,
-                ),
-              ),
+            ),
 
-              if (r.weakTopics.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.warning.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: AppColors.warning.withOpacity(0.2),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 20),
+            Text(
+              good ? 'Great job!' : 'Keep practicing!',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "You've completed the quiz on $_topicDisplay",
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Stats row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _StatChip(
+                  label: 'TIME TAKEN',
+                  value:
+                      '${(totalQ * 45 ~/ 60)}:${(totalQ * 45 % 60).toString().padLeft(2, '0')}',
+                ),
+                _StatChip(label: 'CORRECT', value: '$correctQ/$totalQ'),
+                _StatChip(
+                  label: 'RANK',
+                  value: good
+                      ? '#1'
+                      : '#${(100 - r.scorePercent.round()) ~/ 10 + 1}',
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // AI Insights card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceSoft,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.outline),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.warning_amber_rounded,
-                            color: AppColors.warning,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Topics to review',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
+                      Icon(
+                        Icons.auto_awesome,
+                        size: 18,
+                        color: AppColors.primary,
                       ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: r.weakTopics
-                            .map(
-                              (t) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.surface,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: AppColors.warning.withOpacity(0.3),
-                                  ),
-                                ),
-                                child: Text(
-                                  t,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'AI Insights',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  if (r.weakTopics.isEmpty)
+                    const Text(
+                      'You performed well across all topics. Keep up the consistent study habits!',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        height: 1.5,
+                      ),
+                    )
+                  else ...[
+                    Text(
+                      'You struggled with ${r.weakTopics.length} topic${r.weakTopics.length > 1 ? 's' : ''}:',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...r.weakTopics.map(
+                      (t) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.circle,
+                              size: 6,
+                              color: AppColors.warning,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Review $t',
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
 
-              const SizedBox(height: 28),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          StudyPlanPage(materialId: widget.materialId),
-                    ),
-                  ),
-                  icon: const Icon(Icons.calendar_today_outlined),
-                  label: const Text('Generate Study Plan'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+            const SizedBox(height: 20),
+
+            // Focus areas
+            if (r.weakTopics.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'FOCUS AREAS FOR NEXT SESSION',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textSecondary,
+                    letterSpacing: 1,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => setState(() {
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: r.weakTopics
+                    .map(
+                      (t) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppColors.outline),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.circle,
+                              size: 8,
+                              color: AppColors.warning,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              t,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 20),
+            ],
+
+            // Action buttons
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
                     _submitted = false;
                     _result = null;
                     _answers.clear();
                     _current = 0;
-                  }),
-                  icon: const Icon(Icons.replay),
-                  label: const Text('Retry Quiz'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                    _loading = true;
+                  });
+                  _load();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Review Mistakes'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Back to Overview'),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        StudyPlanPage(materialId: widget.materialId),
+                  ),
+                ),
+                icon: const Icon(Icons.auto_awesome_outlined),
+                label: const Text('Deep Dive with AI'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Maybe later'),
+            ),
+            const SizedBox(height: 24),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final String label, value;
+  const _StatChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.outline),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textSecondary,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }

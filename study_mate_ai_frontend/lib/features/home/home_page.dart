@@ -6,14 +6,6 @@ import '../../core/theme/app_colors.dart';
 import 'data/home_repository.dart';
 import 'model/home_summary.dart';
 
-import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-
-import '../../core/config/routes.dart';
-import '../../core/theme/app_colors.dart';
-import 'data/home_repository.dart';
-import 'model/home_summary.dart';
-
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -38,6 +30,25 @@ class _HomePageState extends State<HomePage> {
       _future = _repo.getHomeSummary();
     });
     await _future;
+  }
+
+  void _onNavTap(int i) {
+    setState(() => _navIndex = i);
+    switch (i) {
+      case 0:
+        // Already on home
+        break;
+      case 1:
+        context.go(AppRoutes.library);
+        break;
+      case 2:
+        // Analytics page
+        context.go('/analytics');
+        break;
+      case 3:
+        // Settings (placeholder)
+        break;
+    }
   }
 
   @override
@@ -78,7 +89,7 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 18),
                   const Text(
-                    "Quick Actions",
+                    'Quick Actions',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
@@ -88,7 +99,7 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: _QuickActionCard(
                           icon: Icons.file_upload_outlined,
-                          label: "Upload",
+                          label: 'Upload',
                           onTap: () => context.push(AppRoutes.upload),
                         ),
                       ),
@@ -96,17 +107,15 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: _QuickActionCard(
                           icon: Icons.quiz_outlined,
-                          label: "Quiz Me",
-                          onTap: () {
-                            // context.push('/quiz');
-                          },
+                          label: 'Quiz Me',
+                          onTap: () => context.push(AppRoutes.library),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: _QuickActionCard(
                           icon: Icons.add_task_outlined,
-                          label: "Add Goal",
+                          label: 'Add Goal',
                           onTap: () => context.push(AppRoutes.addGoal),
                         ),
                       ),
@@ -117,7 +126,7 @@ class _HomePageState extends State<HomePage> {
                   Row(
                     children: [
                       const Text(
-                        "Next Task",
+                        'Next Task',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -125,10 +134,8 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const Spacer(),
                       TextButton(
-                        onPressed: () {
-                          // context.push('/schedule');
-                        },
-                        child: const Text("View Schedule"),
+                        onPressed: () => context.go('/analytics'),
+                        child: const Text('View Schedule'),
                       ),
                     ],
                   ),
@@ -139,12 +146,39 @@ class _HomePageState extends State<HomePage> {
                     time: data.nextTask.timeLabel,
                     description: data.nextTask.description,
                     onStart: () {
-                      // POST /api/tasks/{id}/start
+                      // Navigate to the task's material if available
+                      if (data.nextTask.id > 0) {
+                        context.push(AppRoutes.library);
+                      }
                     },
                   ),
 
                   const SizedBox(height: 16),
                   _AiTipCard(message: data.aiTip.message),
+
+                  // Recent materials section
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      const Text(
+                        'Recent Notes',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => context.go(AppRoutes.library),
+                        child: const Text('See All'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _RecentNotesPrompt(
+                    onUpload: () => context.push(AppRoutes.upload),
+                    onBrowse: () => context.go(AppRoutes.library),
+                  ),
 
                   if (snap.hasError) ...[
                     const SizedBox(height: 14),
@@ -158,7 +192,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       child: const Text(
-                        "Could not load latest home data. Showing default data.",
+                        'Could not load latest data. Showing defaults.',
                         style: TextStyle(
                           fontSize: 13,
                           color: Colors.orange,
@@ -178,36 +212,28 @@ class _HomePageState extends State<HomePage> {
         currentIndex: _navIndex,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondary,
-        onTap: (i) {
-          setState(() {
-            _navIndex = i;
-          });
-
-          if (i == 0) context.go(AppRoutes.home);
-          if (i == 1) context.go(AppRoutes.library);
-          if (i == 2) {
-            // context.go('/schedule');
-          }
-          if (i == 3) {
-            // context.go('/settings');
-          }
-        },
+        type: BottomNavigationBarType.fixed,
+        onTap: _onNavTap,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
-            label: "Home",
+            activeIcon: Icon(Icons.home),
+            label: 'Home',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.menu_book_outlined),
-            label: "Library",
+            activeIcon: Icon(Icons.menu_book),
+            label: 'Library',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month_outlined),
-            label: "Schedule",
+            icon: Icon(Icons.bar_chart_outlined),
+            activeIcon: Icon(Icons.bar_chart),
+            label: 'Analytics',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
-            label: "Settings",
+            activeIcon: Icon(Icons.settings),
+            label: 'Settings',
           ),
         ],
       ),
@@ -215,9 +241,10 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+// ═══════════════════ Sub-widgets ═══════════════════
+
 class _Header extends StatelessWidget {
   const _Header({required this.userName});
-
   final String userName;
 
   @override
@@ -239,19 +266,30 @@ class _Header extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Welcome back,",
-              style: TextStyle(
-                color: AppColors.textSecondary.withOpacity(0.9),
-              ),
+              'Welcome back,',
+              style: TextStyle(color: AppColors.textSecondary.withOpacity(0.9)),
             ),
             Text(
               userName,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
           ],
+        ),
+        const Spacer(),
+        // Notification bell
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.outline),
+          ),
+          child: const Icon(
+            Icons.notifications_outlined,
+            color: AppColors.textSecondary,
+            size: 20,
+          ),
         ),
       ],
     );
@@ -266,8 +304,7 @@ class _ProgressCard extends StatelessWidget {
     required this.badge,
   });
 
-  final int completed;
-  final int total;
+  final int completed, total;
   final double percent;
   final String badge;
 
@@ -297,7 +334,7 @@ class _ProgressCard extends StatelessWidget {
                   valueColor: const AlwaysStoppedAnimation(AppColors.primary),
                 ),
                 Text(
-                  "$completed/$total",
+                  '$completed/$total',
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 16,
@@ -344,8 +381,8 @@ class _ProgressCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   total == 0
-                      ? "No study tasks yet. Add a goal or upload notes to get started."
-                      : "You're on track! Just $remaining more tasks to hit your daily goal.",
+                      ? 'No study tasks yet. Upload notes to get started.'
+                      : "You're on track! $remaining more tasks to go.",
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     height: 1.35,
@@ -381,7 +418,6 @@ class _QuickActionCard extends StatelessWidget {
     required this.label,
     required this.onTap,
   });
-
   final IconData icon;
   final String label;
   final VoidCallback onTap;
@@ -427,10 +463,7 @@ class _NextTaskCard extends StatelessWidget {
     required this.onStart,
   });
 
-  final String tag;
-  final String title;
-  final String time;
-  final String description;
+  final String tag, title, time, description;
   final VoidCallback onStart;
 
   @override
@@ -446,34 +479,49 @@ class _NextTaskCard extends StatelessWidget {
       child: Column(
         children: [
           Container(
-            height: 170,
+            height: 120,
             width: double.infinity,
             decoration: BoxDecoration(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(18),
               ),
-              color: const Color(0xFF2F5C55),
+              gradient: LinearGradient(
+                colors: [const Color(0xFF2F5C55), const Color(0xFF3D7A6F)],
+              ),
             ),
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Container(
-                margin: const EdgeInsets.all(12),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.92),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  tag,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
+            child: Stack(
+              children: [
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.92),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      tag,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: Icon(
+                    Icons.menu_book,
+                    color: Colors.white.withOpacity(0.3),
+                    size: 40,
+                  ),
+                ),
+              ],
             ),
           ),
           Padding(
@@ -492,8 +540,8 @@ class _NextTaskCard extends StatelessWidget {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 6),
                       if (time.isNotEmpty) ...[
+                        const SizedBox(height: 6),
                         Row(
                           children: [
                             const Icon(
@@ -511,8 +559,8 @@ class _NextTaskCard extends StatelessWidget {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 6),
                       ],
+                      const SizedBox(height: 6),
                       Text(
                         description,
                         style: const TextStyle(color: AppColors.textSecondary),
@@ -532,7 +580,7 @@ class _NextTaskCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  child: Text(hasTask ? "Start Now" : "No Task"),
+                  child: Text(hasTask ? 'Start Now' : 'No Task'),
                 ),
               ],
             ),
@@ -545,7 +593,6 @@ class _NextTaskCard extends StatelessWidget {
 
 class _AiTipCard extends StatelessWidget {
   const _AiTipCard({required this.message});
-
   final String message;
 
   @override
@@ -573,7 +620,7 @@ class _AiTipCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  "AI Study Tip",
+                  'AI Study Tip',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
@@ -589,6 +636,67 @@ class _AiTipCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentNotesPrompt extends StatelessWidget {
+  final VoidCallback onUpload, onBrowse;
+  const _RecentNotesPrompt({required this.onUpload, required this.onBrowse});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.outline),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.note_add_outlined,
+            size: 32,
+            color: AppColors.textSecondary.withOpacity(0.5),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Upload notes to see AI analysis here',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onBrowse,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Browse'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onUpload,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Upload'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
