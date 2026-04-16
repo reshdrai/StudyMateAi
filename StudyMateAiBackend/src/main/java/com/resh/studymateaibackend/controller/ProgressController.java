@@ -6,12 +6,11 @@ import com.resh.studymateaibackend.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/progress")
@@ -21,155 +20,114 @@ public class ProgressController {
     private final MaterialRepository materialRepository;
     private final MaterialStudyPlanRepository materialStudyPlanRepository;
     private final QuizAttemptRepository quizAttemptRepository;
+    private final TrackedMaterialRepository trackedMaterialRepository;
 
     @GetMapping("/analytics")
+    @Transactional
     public ResponseEntity<Map<String, Object>> getAnalytics(
-            @AuthenticationPrincipal CustomUserDetails userDetails
-    ) {
-        User user = userDetails.getUser();
-        Long userId = user.getId();
+            @AuthenticationPrincipal CustomUserDetails userDetails) {
 
-        // ── Study plan progress ──
-        int totalTasks = 0;
-        int completedTasks = 0;
-        Map<String, int[]> subjectProgress = new LinkedHashMap<>(); // name -> [total, completed]
+        Long userId = userDetails.getUser().getId();
 
-        List<Material> materials = materialRepository.findByUserId(userId);
+        // Tracked materials — fallback to all if none selected
+        List<Long> trackedIds = trackedMaterialRepository.findByUserId(userId)
+                .stream().map(t -> t.getMaterial().getId()).toList();
+
+        List<Material> materials = trackedIds.isEmpty()
+                ? materialRepository.findByUserId(userId)
+                : materialRepository.findAllById(trackedIds);
+
+        int totalTasks = 0, completedTasks = 0;
+        Map<String, int[]> subjectMap = new LinkedHashMap<>();
+
         for (Material material : materials) {
-            Optional<MaterialStudyPlan> planOpt = materialStudyPlanRepository.findByMaterialId(material.getId());
-            if (planOpt.isEmpty()) continue;
+            Optional<MaterialStudyPlan> planOpt =
+                    materialStudyPlanRepository.findByMaterialId(material.getId());
+            if (planOpt.isEmpty() || planOpt.get().getTasks() == null) continue;
 
-            MaterialStudyPlan plan = planOpt.get();
-            if (plan.getTasks() == null) continue;
+            String subject = "General";
+            try {
+                if (material.getSubject() != null && material.getSubject().getName() != null)
+                    subject = material.getSubject().getName();
+            } catch (Exception ignored) {}
+            // fallback to material title for grouping
+            if ("General".equals(subject)) subject = material.getTitle();
 
-            String subjectName = material.getSubject() != null ? material.getSubject().getName() : "General";
-
-            for (MaterialStudyTask task : plan.getTasks()) {
+            for (MaterialStudyTask task : planOpt.get().getTasks()) {
                 totalTasks++;
-                subjectProgress.putIfAbsent(subjectName, new int[]{0, 0});
-                subjectProgress.get(subjectName)[0]++;
-
-                if (task.isCompleted()) {
-                    completedTasks++;
-                    subjectProgress.get(subjectName)[1]++;
-                }
+                subjectMap.putIfAbsent(subject, new int[]{0, 0});
+                subjectMap.get(subject)[0]++;
+                if (task.isCompleted()) { completedTasks++; subjectMap.get(subject)[1]++; }
             }
         }
 
-        // ── Streak (consecutive days with completed tasks) ──
         int streakDays = calculateStreak(materials);
+        double studyHours = Math.round(completedTasks * 25.0 / 60.0 * 10) / 10.0;
+        double overallMastery = totalTasks > 0
+                ? Math.round(completedTasks * 100.0 / totalTasks * 10) / 10.0 : 0;
 
-        // ── Study hours estimate (completed tasks * avg 25 min) ──
-        double studyHours = (completedTasks * 25.0) / 60.0;
-
-        // ── Overall mastery ──
-        double overallMastery = totalTasks > 0 ? (completedTasks * 100.0 / totalTasks) : 0;
-
-        // ── Quiz scores ──
-        List<QuizAttempt> attempts = quizAttemptRepository.findByUserIdOrderByStartedAtDesc(userId);
-        double avgQuizScore = 0;
-        double quizScoreChange = 0;
-        List<Double> recentScores = new ArrayList<>();
+        // Quiz scores
+        List<QuizAttempt> attempts =
+                quizAttemptRepository.findByUserIdOrderByStartedAtDesc(userId);
+        double avgScore = 0, scoreChange = 0;
+        List<Double> weekly = new ArrayList<>(Collections.nCopies(7, 0.0));
 
         if (!attempts.isEmpty()) {
-            double totalScore = 0;
-            int scoreCount = 0;
-            for (QuizAttempt attempt : attempts) {
-                if (attempt.getScore() != null) {
-                    totalScore += attempt.getScore().doubleValue();
-                    scoreCount++;
-                    if (recentScores.size() < 7) {
-                        recentScores.add(attempt.getScore().doubleValue());
-                    }
-                }
+            double sum = 0; int cnt = 0;
+            List<Double> recent = new ArrayList<>();
+            for (QuizAttempt a : attempts) {
+                if (a.getScore() == null) continue;
+                sum += a.getScore().doubleValue(); cnt++;
+                if (recent.size() < 7) recent.add(a.getScore().doubleValue());
             }
-            avgQuizScore = scoreCount > 0 ? totalScore / scoreCount : 0;
-
-            // Calculate change: compare latest 3 vs previous 3
+            if (cnt > 0) avgScore = Math.round(sum / cnt * 10) / 10.0;
+            Collections.reverse(recent);
+            for (int i = 0; i < Math.min(recent.size(), 7); i++) weekly.set(i, recent.get(i));
             if (attempts.size() >= 4) {
-                double recent = attempts.subList(0, Math.min(3, attempts.size())).stream()
+                double r = attempts.subList(0, 3).stream().filter(a -> a.getScore() != null)
+                        .mapToDouble(a -> a.getScore().doubleValue()).average().orElse(0);
+                double o = attempts.subList(3, Math.min(6, attempts.size())).stream()
                         .filter(a -> a.getScore() != null)
-                        .mapToDouble(a -> a.getScore().doubleValue())
-                        .average().orElse(0);
-                double older = attempts.subList(Math.min(3, attempts.size()), Math.min(6, attempts.size())).stream()
-                        .filter(a -> a.getScore() != null)
-                        .mapToDouble(a -> a.getScore().doubleValue())
-                        .average().orElse(0);
-                quizScoreChange = recent - older;
+                        .mapToDouble(a -> a.getScore().doubleValue()).average().orElse(0);
+                scoreChange = Math.round((r - o) * 10) / 10.0;
             }
         }
 
-        // Pad weekly scores to 7 entries
-        while (recentScores.size() < 7) {
-            recentScores.add(0.0);
-        }
-        Collections.reverse(recentScores); // oldest first
-
-        // ── Subject progress list ──
+        // Subject list
         List<Map<String, Object>> subjects = new ArrayList<>();
-        for (Map.Entry<String, int[]> entry : subjectProgress.entrySet()) {
-            int total = entry.getValue()[0];
-            int completed = entry.getValue()[1];
-            double progress = total > 0 ? (double) completed / total : 0;
-            String level = progress >= 0.8 ? "Advanced" : progress >= 0.4 ? "Proficient" : "Beginner";
-
-            subjects.add(Map.of(
-                    "name", entry.getKey(),
-                    "progress", Math.round(progress * 100.0) / 100.0,
-                    "level", level,
-                    "totalTasks", total,
-                    "completedTasks", completed
-            ));
+        for (Map.Entry<String, int[]> e : subjectMap.entrySet()) {
+            int tot = e.getValue()[0], comp = e.getValue()[1];
+            double prog = tot > 0 ? Math.round(comp * 100.0 / tot * 10) / 1000.0 : 0;
+            String level = prog >= 0.8 ? "Advanced" : prog >= 0.4 ? "Proficient" : "Beginner";
+            subjects.add(Map.of("name", e.getKey(), "progress", prog,
+                    "level", level, "totalTasks", tot, "completedTasks", comp));
         }
 
-        // ── Build response ──
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("streakDays", streakDays);
-        response.put("studyHours", Math.round(studyHours * 10.0) / 10.0);
-        response.put("overallMastery", Math.round(overallMastery * 10.0) / 10.0);
-        response.put("totalTasks", totalTasks);
-        response.put("completedTasks", completedTasks);
-        response.put("avgQuizScore", Math.round(avgQuizScore * 10.0) / 10.0);
-        response.put("quizScoreChange", Math.round(quizScoreChange * 10.0) / 10.0);
-        response.put("weeklyScores", recentScores);
-        response.put("subjects", subjects);
-        response.put("totalMaterials", materials.size());
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of(
+                "streakDays", streakDays, "studyHours", studyHours,
+                "overallMastery", overallMastery, "totalTasks", totalTasks,
+                "completedTasks", completedTasks, "avgQuizScore", avgScore,
+                "quizScoreChange", scoreChange, "weeklyScores", weekly,
+                "subjects", subjects, "totalMaterials", materials.size()
+        ));
     }
 
-    /**
-     * Calculate streak: count consecutive days (going backward from today)
-     * that have at least one completed task.
-     */
     private int calculateStreak(List<Material> materials) {
-        Set<LocalDate> completedDates = new HashSet<>();
-
-        for (Material material : materials) {
-            Optional<MaterialStudyPlan> planOpt = materialStudyPlanRepository.findByMaterialId(material.getId());
-            if (planOpt.isEmpty()) continue;
-
-            MaterialStudyPlan plan = planOpt.get();
-            if (plan.getTasks() == null) continue;
-
-            for (MaterialStudyTask task : plan.getTasks()) {
-                if (task.isCompleted() && task.getDayLabel() != null) {
-                    try {
-                        completedDates.add(LocalDate.parse(task.getDayLabel()));
-                    } catch (Exception ignored) {}
+        Set<LocalDate> dates = new HashSet<>();
+        for (Material m : materials) {
+            materialStudyPlanRepository.findByMaterialId(m.getId()).ifPresent(plan -> {
+                if (plan.getTasks() == null) return;
+                for (MaterialStudyTask t : plan.getTasks()) {
+                    if (!t.isCompleted() || t.getDayLabel() == null) continue;
+                    try { dates.add(LocalDate.parse(t.getDayLabel())); } catch (Exception ignored) {}
                 }
-            }
+            });
         }
-
-        if (completedDates.isEmpty()) return 0;
-
+        if (dates.isEmpty()) return 0;
         int streak = 0;
-        LocalDate date = LocalDate.now();
-        while (completedDates.contains(date)) {
-            streak++;
-            date = date.minusDays(1);
-        }
-
-        return Math.max(streak, completedDates.isEmpty() ? 0 : 1);
+        LocalDate d = LocalDate.now();
+        if (!dates.contains(d) && dates.contains(d.minusDays(1))) d = d.minusDays(1);
+        while (dates.contains(d)) { streak++; d = d.minusDays(1); }
+        return streak;
     }
 }

@@ -2,7 +2,6 @@ package com.resh.studymateaibackend.controller;
 
 import com.resh.studymateaibackend.auth.CustomUserDetails;
 import com.resh.studymateaibackend.dto.study.*;
-import com.resh.studymateaibackend.entity.User;
 import com.resh.studymateaibackend.service.MaterialAiService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -26,16 +25,21 @@ public class MaterialAiController {
         return ResponseEntity.ok(materialAiService.generateOverview(id, userDetails.getUser()));
     }
 
-    /** Generate quiz from ALL topics */
+    /** Quiz from ALL topics */
     @PostMapping("/{id}/quiz")
     public ResponseEntity<QuizResponseDto> generateQuiz(
             @PathVariable Long id,
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) throws Exception {
-        return ResponseEntity.ok(materialAiService.generateQuiz(id, userDetails.getUser()));
+        return ResponseEntity.ok(
+                materialAiService.generateQuizForTopic(id, userDetails.getUser(), "ALL", null, 5, 1)
+        );
     }
 
-    /** Generate quiz for a SPECIFIC topic, supports attemptNumber for different questions */
+    /**
+     * Quiz for a specific topic OR all topics.
+     * If topicLabel is blank / "ALL" → generates from all topics.
+     */
     @PostMapping("/{id}/quiz/topic")
     public ResponseEntity<QuizResponseDto> generateQuizForTopic(
             @PathVariable Long id,
@@ -43,13 +47,23 @@ public class MaterialAiController {
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) throws Exception {
         String topicLabel = body.getOrDefault("topicLabel", "ALL").toString();
-        String subtopicLabel = body.containsKey("subtopicLabel") ? body.get("subtopicLabel").toString() : null;
-        int maxQuestions = body.containsKey("maxQuestions") ? Integer.parseInt(body.get("maxQuestions").toString()) : 5;
-        int attemptNumber = body.containsKey("attemptNumber") ? Integer.parseInt(body.get("attemptNumber").toString()) : 1;
+        String subtopicLabel = body.containsKey("subtopicLabel")
+                ? body.get("subtopicLabel").toString() : null;
+        int maxQuestions = body.containsKey("maxQuestions")
+                ? Integer.parseInt(body.get("maxQuestions").toString()) : 5;
+        int attemptNumber = body.containsKey("attemptNumber")
+                ? Integer.parseInt(body.get("attemptNumber").toString()) : 1;
+
+        // Always use ALL if no meaningful topic is given
+        if (topicLabel.isBlank() || topicLabel.equalsIgnoreCase("General Topic")) {
+            topicLabel = "ALL";
+        }
 
         return ResponseEntity.ok(
                 materialAiService.generateQuizForTopic(
-                        id, userDetails.getUser(), topicLabel, subtopicLabel, maxQuestions, attemptNumber
+                        id, userDetails.getUser(),
+                        topicLabel, subtopicLabel,
+                        maxQuestions, attemptNumber
                 )
         );
     }

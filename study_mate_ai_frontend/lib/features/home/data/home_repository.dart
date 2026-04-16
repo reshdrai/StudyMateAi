@@ -10,7 +10,7 @@ class UpcomingTask {
   final String subjectTag;
   final String timeLabel;
   final int? materialId;
-  final String taskType; // READ, QUIZ, REVIEW, DEEP_REVIEW
+  final String taskType;
 
   UpcomingTask({
     required this.id,
@@ -55,7 +55,7 @@ class HomeSummary {
   });
 
   double get progressRatio =>
-      totalTasks == 0 ? 0.0 : completedTasks / totalTasks;
+      totalTasks == 0 ? 0.0 : (completedTasks / totalTasks).clamp(0.0, 1.0);
 
   factory HomeSummary.fromJson(Map<String, dynamic> json) {
     final nextTaskJson = json['nextTask'] as Map<String, dynamic>?;
@@ -76,6 +76,22 @@ class HomeSummary {
       aiTip: aiTipJson != null ? (aiTipJson['message'] ?? '').toString() : '',
     );
   }
+
+  static HomeSummary get fallback => HomeSummary(
+    userName: 'Student',
+    completedTasks: 0,
+    totalTasks: 0,
+    progressText: '0% Done',
+    nextTask: UpcomingTask(
+      id: 0,
+      title: 'No upcoming task',
+      description: 'Start by uploading notes and generating a study plan.',
+      subjectTag: 'GENERAL',
+      timeLabel: '',
+    ),
+    upcomingTasks: const [],
+    aiTip: 'Upload notes or create a study plan to get personalized tips.',
+  );
 }
 
 class HomeRepository {
@@ -89,7 +105,7 @@ class HomeRepository {
     };
   }
 
-  Future<HomeSummary> getSummary() async {
+  Future<HomeSummary> getHomeSummary() async {
     final res = await http
         .get(Uri.parse('$_baseUrl/summary'), headers: await _headers())
         .timeout(const Duration(seconds: 15));

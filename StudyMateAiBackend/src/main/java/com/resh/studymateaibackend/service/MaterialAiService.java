@@ -78,7 +78,7 @@ public class MaterialAiService {
                 .build();
     }
 
-    // ========== QUIZ (supports attemptNumber for different questions) ==========
+
 
     public QuizResponseDto generateQuiz(Long materialId, User user) throws Exception {
         return generateQuizForTopic(materialId, user, "ALL", null, 5, 1);
@@ -93,23 +93,22 @@ public class MaterialAiService {
         MaterialAnalysis analysis = getOrCreateAnalysis(material);
 
         // Ensure overview exists
-        List<TopicPriorityDto> topics = readTopics(analysis);
-        if (topics.isEmpty()) {
+        if (readTopics(analysis).isEmpty()) {
             generateOverview(materialId, user);
             analysis = getOrCreateAnalysis(material);
-            topics = readTopics(analysis);
         }
 
-        String effectiveTopic = (topicLabel != null && !topicLabel.isBlank()) ? topicLabel : "ALL";
-        String effectiveSubtopic = subtopicLabel;
+        // Always fall back to ALL if no specific topic given
+        String effectiveTopic = (topicLabel == null || topicLabel.isBlank()
+                || topicLabel.equalsIgnoreCase("general topic"))
+                ? "ALL" : topicLabel;
 
         Map<String, Object> quizResponse = aiModelClient.generateQuiz(
-                cleanedText, null, effectiveTopic, effectiveSubtopic, maxQuestions
+                cleanedText, null, effectiveTopic, subtopicLabel, maxQuestions
         );
 
         List<QuizQuestionDto> questions = parseQuizQuestions(quizResponse);
 
-        // Apply attempt offset to get different questions each time
         if (attemptNumber > 1 && questions.size() > 1) {
             questions = shuffleQuestionsForAttempt(questions, attemptNumber, materialId);
         }

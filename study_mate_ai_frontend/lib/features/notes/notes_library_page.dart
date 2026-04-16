@@ -3,32 +3,31 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/config/routes.dart';
+import '../shared/app_bottom_nav.dart';
 import 'data/notes_repository.dart';
 import 'model/note_item.dart';
 import '../note_details/materials_study_page.dart';
+import '../study_plan/study_plan_page.dart';
+import '../../services/tracking_repository.dart';
 
 class NotesLibraryPage extends StatefulWidget {
   const NotesLibraryPage({super.key});
-
   @override
   State<NotesLibraryPage> createState() => _NotesLibraryPageState();
 }
 
 class _NotesLibraryPageState extends State<NotesLibraryPage> {
   final _repo = NotesRepository();
-
+  final _trackRepo = TrackingRepository();
   late Future<List<NoteItem>> _future;
   final _searchCtrl = TextEditingController();
-
-  final List<String> _tabs = ["All", "Comp Sci", "Calculus", "History"];
-  String _activeTab = "All";
-
-  int _navIndex = 1;
+  final Map<int, bool> _tracked = {};
 
   @override
   void initState() {
     super.initState();
-    _future = _repo.getNotes(category: _activeTab, query: "");
+    _reload();
+    _loadTracking();
   }
 
   @override
@@ -37,121 +36,148 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
     super.dispose();
   }
 
-  Future<void> _reload() async {
-    setState(() {
-      _future = _repo.getNotes(
-        category: _activeTab,
-        query: _searchCtrl.text.trim(),
-      );
-    });
+  void _reload() {
+    _future = _repo.getNotes(category: 'All', query: _searchCtrl.text.trim());
+    setState(() {});
   }
 
-  void _onTabSelect(String tab) {
-    setState(() => _activeTab = tab);
-    _reload();
+  Future<void> _loadTracking() async {
+    try {
+      final items = await _trackRepo.getAll();
+      if (!mounted) return;
+      setState(() {
+        for (final i in items) _tracked[i.id] = i.isTracked;
+      });
+    } catch (_) {}
   }
 
-  void _onNavTap(int i) {
-    setState(() => _navIndex = i);
-    switch (i) {
-      case 0:
-        context.go(AppRoutes.home);
-        break;
-      case 1:
-        // Already on library
-        break;
-      case 2:
-        context.go(AppRoutes.analytics);
-        break;
-      case 3:
-        // Settings placeholder
-        break;
+  Future<void> _toggleTracking(int id) async {
+    final cur = _tracked[id] ?? false;
+    setState(() => _tracked[id] = !cur);
+    try {
+      final res = await _trackRepo.toggle(id);
+      if (mounted) setState(() => _tracked[id] = res);
+    } catch (_) {
+      if (mounted) setState(() => _tracked[id] = cur);
     }
+  }
+
+  void _showTrackSheet() async {
+    final items = await _trackRepo.getAll();
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _TrackSheet(
+        items: items,
+        onToggle: (id) async {
+          final r = await _trackRepo.toggle(id);
+          if (mounted) setState(() => _tracked[id] = r);
+          return r;
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: AppColors.background,
       body: SafeArea(
         child: FutureBuilder<List<NoteItem>>(
           future: _future,
-          builder: (context, snap) {
-            final notes = snap.data ?? const <NoteItem>[];
-
+          builder: (_, snap) {
+            final notes = snap.data ?? [];
             return RefreshIndicator(
               onRefresh: () async {
                 _reload();
+                _loadTracking();
                 await _future;
               },
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 90),
                 children: [
-                  // Header
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Notes Library',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            Text(
+                              'Upload notes and let AI analyze them',
+                              style: TextStyle(
+                                color: cs.onSurface.withOpacity(0.5),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.10),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          "✦ AI ASSISTANT",
-                          style: TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.0,
-                            fontSize: 11,
+                      ),
+                      TextButton.icon(
+                        onPressed: _showTrackSheet,
+                        icon: const Icon(Icons.track_changes, size: 17),
+                        label: const Text('Track'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
                           ),
                         ),
                       ),
-                      const Spacer(),
-                      _CircleIconButton(
-                        icon: Icons.grid_view_rounded,
-                        onTap: () {},
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    "Notes Library",
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "Upload notes and let AI analyze them",
-                    style: TextStyle(
-                      color: AppColors.textSecondary.withOpacity(0.8),
-                      fontSize: 14,
-                    ),
-                  ),
+                  const SizedBox(height: 14),
 
-                  const SizedBox(height: 16),
-                  _SearchBar(
+                  TextField(
                     controller: _searchCtrl,
                     onChanged: (_) => _reload(),
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: cs.onSurface.withOpacity(0.4),
+                      ),
+                      hintText: 'Search your notes...',
+                      filled: true,
+                      fillColor: Theme.of(context).cardColor,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 13,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: AppColors.primary),
+                      ),
+                    ),
                   ),
-
-                  const SizedBox(height: 14),
-                  _CategoryChips(
-                    tabs: _tabs,
-                    active: _activeTab,
-                    onSelect: _onTabSelect,
-                  ),
-
                   const SizedBox(height: 16),
 
                   if (snap.connectionState == ConnectionState.waiting)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 40),
-                      child: Center(child: CircularProgressIndicator()),
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 40),
+                        child: CircularProgressIndicator(),
+                      ),
                     )
                   else if (notes.isEmpty)
-                    _buildEmptyState()
+                    _empty(context)
                   else
                     GridView.builder(
                       shrinkWrap: true,
@@ -162,23 +188,29 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
                             crossAxisCount: 2,
                             crossAxisSpacing: 12,
                             mainAxisSpacing: 12,
-                            childAspectRatio: 0.78,
+                            childAspectRatio: 0.74,
                           ),
                       itemBuilder: (_, i) {
                         final n = notes[i];
                         return _NoteCard(
                           note: n,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => MaterialStudyPage(
-                                  materialId: n.id,
-                                  title: n.title,
-                                ),
+                          isTracked: _tracked[n.id] ?? false,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MaterialStudyPage(
+                                materialId: n.id,
+                                title: n.title,
                               ),
-                            );
-                          },
+                            ),
+                          ),
+                          onStudyPlan: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => StudyPlanPage(materialId: n.id),
+                            ),
+                          ),
+                          onTrackToggle: () => _toggleTracking(n.id),
                         );
                       },
                     ),
@@ -188,7 +220,6 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
           },
         ),
       ),
-
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
@@ -199,211 +230,250 @@ class _NotesLibraryPageState extends State<NotesLibraryPage> {
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
-
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _navIndex,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textSecondary,
-        type: BottomNavigationBarType.fixed,
-        onTap: _onNavTap,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: "Home",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.menu_book_outlined),
-            activeIcon: Icon(Icons.menu_book),
-            label: "Library",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart_outlined),
-            activeIcon: Icon(Icons.bar_chart),
-            label: "Analytics",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
-            label: "Settings",
-          ),
-        ],
-      ),
+      bottomNavigationBar: const AppBottomNav(currentIndex: 1),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 40),
-      child: Column(
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceSoft,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: const Icon(
-              Icons.note_add_outlined,
-              size: 34,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            "No notes yet",
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "Upload a PDF or text file to get started.\nAI will extract key points and create quizzes.",
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.textSecondary, height: 1.4),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: () => context.push(AppRoutes.upload),
-            icon: const Icon(Icons.file_upload_outlined, size: 18),
-            label: const Text('Upload Notes'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ════════════════════════════════════════════
-// Sub-components
-// ════════════════════════════════════════════
-
-class _CircleIconButton extends StatelessWidget {
-  const _CircleIconButton({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Container(
-          width: 42,
-          height: 42,
+  Widget _empty(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 40),
+    child: Column(
+      children: [
+        Container(
+          width: 70,
+          height: 70,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.outline),
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(22),
           ),
-          child: Icon(icon, color: AppColors.textPrimary, size: 20),
+          child: const Icon(
+            Icons.note_add_outlined,
+            size: 32,
+            color: AppColors.textSecondary,
+          ),
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 14),
+        const Text(
+          'No notes yet',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Upload a PDF or text file to get started.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+        ),
+        const SizedBox(height: 18),
+        ElevatedButton.icon(
+          onPressed: () => context.push(AppRoutes.upload),
+          icon: const Icon(Icons.file_upload_outlined, size: 18),
+          label: const Text('Upload Notes'),
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
-class _SearchBar extends StatelessWidget {
-  const _SearchBar({required this.controller, required this.onChanged});
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
+// ── Track Sheet ──────────────────────────────────────────────────────
+
+class _TrackSheet extends StatefulWidget {
+  const _TrackSheet({required this.items, required this.onToggle});
+  final List<TrackingItem> items;
+  final Future<bool> Function(int) onToggle;
+  @override
+  State<_TrackSheet> createState() => _TrackSheetState();
+}
+
+class _TrackSheetState extends State<_TrackSheet> {
+  late List<TrackingItem> _items;
+  @override
+  void initState() {
+    super.initState();
+    _items = List.from(widget.items);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      onChanged: onChanged,
-      decoration: InputDecoration(
-        prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
-        hintText: "Search your notes...",
-        filled: true,
-        fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.outline),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.primary),
-        ),
-      ),
-    );
-  }
-}
-
-class _CategoryChips extends StatelessWidget {
-  const _CategoryChips({
-    required this.tabs,
-    required this.active,
-    required this.onSelect,
-  });
-  final List<String> tabs;
-  final String active;
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 38,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: tabs.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final t = tabs[i];
-          final isActive = t == active;
-          return InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: () => onSelect(t),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-              decoration: BoxDecoration(
-                color: isActive ? AppColors.primary : AppColors.surface,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: isActive ? AppColors.primary : AppColors.outline,
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  t,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: isActive ? Colors.white : AppColors.textPrimary,
+    final cs = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      maxChildSize: 0.9,
+      builder: (_, ctrl) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).dividerColor,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Track Notes',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Selected notes appear in Home & Analytics.',
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.55),
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+                Text(
+                  'If none selected, all notes are used.',
+                  style: TextStyle(
+                    color: AppColors.primary.withOpacity(0.8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: _items.isEmpty
+                ? Center(
+                    child: Text(
+                      'No notes yet.',
+                      style: TextStyle(color: cs.onSurface.withOpacity(0.5)),
+                    ),
+                  )
+                : ListView.separated(
+                    controller: ctrl,
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    itemCount: _items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, i) {
+                      final item = _items[i];
+                      return InkWell(
+                        onTap: () async {
+                          final r = await widget.onToggle(item.id);
+                          setState(() => _items[i].isTracked = r);
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: item.isTracked
+                                ? AppColors.primary.withOpacity(0.07)
+                                : Theme.of(context).cardColor,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: item.isTracked
+                                  ? AppColors.primary.withOpacity(0.35)
+                                  : Theme.of(context).dividerColor,
+                              width: item.isTracked ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: item.isTracked
+                                      ? AppColors.primary.withOpacity(0.12)
+                                      : cs.onSurface.withOpacity(0.06),
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                                child: Icon(
+                                  item.fileType.contains('pdf')
+                                      ? Icons.picture_as_pdf_outlined
+                                      : Icons.description_outlined,
+                                  color: item.isTracked
+                                      ? AppColors.primary
+                                      : cs.onSurface.withOpacity(0.5),
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  item.title,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                    color: item.isTracked
+                                        ? AppColors.primary
+                                        : null,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: 26,
+                                height: 26,
+                                decoration: BoxDecoration(
+                                  color: item.isTracked
+                                      ? AppColors.primary
+                                      : Colors.transparent,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: item.isTracked
+                                        ? AppColors.primary
+                                        : cs.onSurface.withOpacity(0.4),
+                                    width: 2,
+                                  ),
+                                ),
+                                child: item.isTracked
+                                    ? const Icon(
+                                        Icons.check,
+                                        color: Colors.white,
+                                        size: 14,
+                                      )
+                                    : null,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
 }
 
+// ── Note Card ────────────────────────────────────────────────────────
+
 class _NoteCard extends StatelessWidget {
-  const _NoteCard({required this.note, required this.onTap});
+  const _NoteCard({
+    required this.note,
+    required this.isTracked,
+    required this.onTap,
+    required this.onStudyPlan,
+    required this.onTrackToggle,
+  });
   final NoteItem note;
-  final VoidCallback onTap;
+  final bool isTracked;
+  final VoidCallback onTap, onStudyPlan, onTrackToggle;
 
   @override
   Widget build(BuildContext context) {
-    final statusLabel = note.statusLabel;
-    final hasStatus = statusLabel.isNotEmpty;
-
+    final cs = Theme.of(context).colorScheme;
     final statusColor = note.status == NoteStatus.aiReady
         ? AppColors.success
         : note.status == NoteStatus.analyzing
@@ -415,73 +485,29 @@ class _NoteCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.outline),
+          border: Border.all(
+            color: isTracked
+                ? AppColors.primary.withOpacity(0.45)
+                : Theme.of(context).dividerColor,
+            width: isTracked ? 1.5 : 1,
+          ),
         ),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceSoft,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Stack(
-                  children: [
-                    if (hasStatus)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (note.status == NoteStatus.aiReady)
-                                Icon(
-                                  Icons.check_circle,
-                                  size: 12,
-                                  color: statusColor,
-                                )
-                              else if (note.status == NoteStatus.analyzing)
-                                SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation(
-                                      statusColor,
-                                    ),
-                                  ),
-                                ),
-                              const SizedBox(width: 4),
-                              Text(
-                                note.status == NoteStatus.aiReady
-                                    ? 'READY'
-                                    : 'PROCESSING',
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 9,
-                                  letterSpacing: 0.3,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    Center(
+              child: Stack(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: cs.onSurface.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -491,14 +517,14 @@ class _NoteCard extends StatelessWidget {
                                 : note.type == NoteType.image
                                 ? Icons.image_outlined
                                 : Icons.description_outlined,
-                            size: 36,
+                            size: 32,
                             color: AppColors.primary.withOpacity(0.7),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             note.typeLabel,
                             style: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.7),
+                              color: cs.onSurface.withOpacity(0.5),
                               fontWeight: FontWeight.w700,
                               fontSize: 11,
                             ),
@@ -506,24 +532,103 @@ class _NoteCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  if (note.status != NoteStatus.none)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          note.status == NoteStatus.aiReady ? 'READY' : 'PROC.',
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Track toggle
+                  Positioned(
+                    bottom: 6,
+                    right: 6,
+                    child: GestureDetector(
+                      onTap: onTrackToggle,
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        decoration: BoxDecoration(
+                          color: isTracked
+                              ? AppColors.primary
+                              : Theme.of(context).cardColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isTracked
+                                ? AppColors.primary
+                                : cs.onSurface.withOpacity(0.25),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          isTracked ? Icons.check : Icons.add_chart,
+                          size: 13,
+                          color: isTracked
+                              ? Colors.white
+                              : cs.onSurface.withOpacity(0.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Study plan icon
+                  Positioned(
+                    bottom: 6,
+                    left: 6,
+                    child: GestureDetector(
+                      onTap: onStudyPlan,
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: cs.onSurface.withOpacity(0.2),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.calendar_today_outlined,
+                          size: 13,
+                          color: cs.onSurface.withOpacity(0.45),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               note.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 2),
             Text(
-              "${note.dateLabel} • ${note.metaLabel}",
+              note.dateLabel,
               style: TextStyle(
-                color: AppColors.textSecondary.withOpacity(0.7),
-                fontWeight: FontWeight.w600,
+                color: cs.onSurface.withOpacity(0.45),
                 fontSize: 11,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

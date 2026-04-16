@@ -24,17 +24,22 @@ public class MaterialStudyTask {
     private String dayLabel;
 
     @Column(nullable = false)
-    private String title;
+    @Builder.Default
+    private String title = "Study Task";
 
     @Column(columnDefinition = "TEXT")
-    private String description;
+    @Builder.Default
+    private String description = "";
 
     @Column(nullable = false)
-    private boolean completed;
+    @Builder.Default
+    private boolean completed = false;
 
     @Column(name = "task_type")
-    private String taskType;
+    @Builder.Default
+    private String taskType = "READ";
 
     @Column(name = "estimated_minutes")
-    private int estimatedMinutes;
+    @Builder.Default
+    private int estimatedMinutes = 25;
 }
