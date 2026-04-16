@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/theme/app_colors.dart';
+import '../../core/config/routes.dart';
 import '../../services/token_storage.dart';
 import '../../services/api_config.dart';
 
@@ -15,8 +17,9 @@ class ProgressAnalyticsPage extends StatefulWidget {
 }
 
 class _ProgressAnalyticsPageState extends State<ProgressAnalyticsPage> {
-  int _selectedPeriod = 0; // 0=This Week, 1=This Month, 2=This Semester
+  int _selectedPeriod = 0;
   final List<String> _periods = ['This Week', 'This Month', 'This Semester'];
+  int _navIndex = 2;
 
   // Data from backend
   int _streakDays = 0;
@@ -24,9 +27,10 @@ class _ProgressAnalyticsPageState extends State<ProgressAnalyticsPage> {
   double _overallMastery = 0;
   double _avgQuizScore = 0;
   double _quizScoreChange = 0;
+  int _totalTasks = 0;
+  int _completedTasks = 0;
   List<double> _weeklyScores = [0, 0, 0, 0, 0, 0, 0];
   List<_SubjectProgress> _subjects = [];
-  String _peakTime = '7 PM';
   bool _loading = true;
 
   @override
@@ -41,108 +45,77 @@ class _ProgressAnalyticsPageState extends State<ProgressAnalyticsPage> {
       final token = await TokenStorage.getToken();
       final baseUrl = ApiConfig.baseUrl;
 
-      // Load home summary for basic stats
-      final homeRes = await http
+      // Call the real analytics endpoint
+      final res = await http
           .get(
-            Uri.parse('$baseUrl/api/home/summary'),
+            Uri.parse('$baseUrl/api/progress/analytics'),
             headers: {
               'Content-Type': 'application/json',
               if (token != null) 'Authorization': 'Bearer $token',
             },
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15));
 
-      if (homeRes.statusCode == 200) {
-        final data = jsonDecode(homeRes.body);
-        final completed = data['completedTasks'] ?? 0;
-        final total = data['totalTasks'] ?? 0;
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
 
         setState(() {
-          _streakDays = max(1, completed);
-          _studyHours = (completed * 1.5).toDouble();
-          _overallMastery = total > 0 ? (completed / total * 100) : 0;
-        });
-      }
+          _streakDays = data['streakDays'] ?? 0;
+          _studyHours = (data['studyHours'] as num?)?.toDouble() ?? 0;
+          _overallMastery = (data['overallMastery'] as num?)?.toDouble() ?? 0;
+          _totalTasks = data['totalTasks'] ?? 0;
+          _completedTasks = data['completedTasks'] ?? 0;
+          _avgQuizScore = (data['avgQuizScore'] as num?)?.toDouble() ?? 0;
+          _quizScoreChange = (data['quizScoreChange'] as num?)?.toDouble() ?? 0;
 
-      // Load materials to calculate subject progress
-      final matRes = await http
-          .get(
-            Uri.parse('$baseUrl/api/materials'),
-            headers: {
-              'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (matRes.statusCode == 200) {
-        final materials = jsonDecode(matRes.body) as List;
-        Map<String, int> subjectCounts = {};
-        Map<String, int> readyCounts = {};
-
-        for (var m in materials) {
-          final subject = (m['subjectName'] ?? 'General').toString();
-          subjectCounts[subject] = (subjectCounts[subject] ?? 0) + 1;
-          final status = (m['processingStatus'] ?? '').toString().toUpperCase();
-          if (status.contains('READY') ||
-              status.contains('QUIZ') ||
-              status.contains('PLAN')) {
-            readyCounts[subject] = (readyCounts[subject] ?? 0) + 1;
+          // Weekly scores
+          if (data['weeklyScores'] is List) {
+            _weeklyScores = (data['weeklyScores'] as List)
+                .map((e) => (e as num).toDouble())
+                .toList();
+            while (_weeklyScores.length < 7) {
+              _weeklyScores.add(0);
+            }
           }
-        }
 
-        final subjects = <_SubjectProgress>[];
-        for (var entry in subjectCounts.entries) {
-          final ready = readyCounts[entry.key] ?? 0;
-          final total = entry.value;
-          subjects.add(
-            _SubjectProgress(
-              name: entry.key,
-              progress: total > 0 ? (ready / total) : 0,
-              level: ready >= 3
-                  ? 'Advanced'
-                  : ready >= 1
-                  ? 'Proficient'
-                  : 'Beginner',
-            ),
-          );
-        }
-
-        setState(() {
-          _subjects = subjects;
-          _avgQuizScore = 75 + Random().nextDouble() * 20; // simulated
-          _quizScoreChange = Random().nextDouble() * 15;
-          _weeklyScores = List.generate(
-            7,
-            (_) => 50 + Random().nextDouble() * 50,
-          );
+          // Subjects
+          if (data['subjects'] is List) {
+            _subjects = (data['subjects'] as List).map((s) {
+              return _SubjectProgress(
+                name: s['name'] ?? 'General',
+                progress: (s['progress'] as num?)?.toDouble() ?? 0,
+                level: s['level'] ?? 'Beginner',
+                totalTasks: s['totalTasks'] ?? 0,
+                completedTasks: s['completedTasks'] ?? 0,
+              );
+            }).toList();
+          }
         });
+      } else {
+        // Fallback to showing zeros
+        print('Analytics API returned: ${res.statusCode}');
       }
     } catch (e) {
-      // Use fallback data
-      setState(() {
-        _streakDays = 12;
-        _studyHours = 48.5;
-        _overallMastery = 82;
-        _avgQuizScore = 94.2;
-        _quizScoreChange = 12.4;
-        _weeklyScores = [65, 70, 85, 60, 90, 78, 88];
-        _subjects = [
-          _SubjectProgress(
-            name: 'Calculus III',
-            progress: 0.95,
-            level: 'Proficient',
-          ),
-          _SubjectProgress(
-            name: 'Molecular Bio',
-            progress: 0.44,
-            level: 'Proficient',
-          ),
-          _SubjectProgress(name: 'History', progress: 0.72, level: 'Advanced'),
-        ];
-      });
+      print('Analytics load error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _onNavTap(int i) {
+    setState(() => _navIndex = i);
+    switch (i) {
+      case 0:
+        context.go(AppRoutes.home);
+        break;
+      case 1:
+        context.go(AppRoutes.library);
+        break;
+      case 2:
+        // Already on analytics
+        break;
+      case 3:
+        break;
     }
   }
 
@@ -186,8 +159,8 @@ class _ProgressAnalyticsPageState extends State<ProgressAnalyticsPage> {
                         ),
                         const Spacer(),
                         IconButton(
-                          icon: const Icon(Icons.calendar_month_outlined),
-                          onPressed: () {},
+                          icon: const Icon(Icons.refresh_outlined),
+                          onPressed: _loadData,
                         ),
                       ],
                     ),
@@ -210,8 +183,6 @@ class _ProgressAnalyticsPageState extends State<ProgressAnalyticsPage> {
                             iconColor: Colors.orange,
                             label: 'Streak',
                             value: '$_streakDays Days',
-                            change: '+2%',
-                            positive: true,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -221,15 +192,37 @@ class _ProgressAnalyticsPageState extends State<ProgressAnalyticsPage> {
                             iconColor: AppColors.primary,
                             label: 'Study Hours',
                             value: '${_studyHours.toStringAsFixed(1)}h',
-                            change: '-5%',
-                            positive: false,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Task completion
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            icon: Icons.task_alt,
+                            iconColor: AppColors.success,
+                            label: 'Tasks Done',
+                            value: '$_completedTasks/$_totalTasks',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            icon: Icons.trending_up,
+                            iconColor: AppColors.tealAccent,
+                            label: 'Mastery',
+                            value: '${_overallMastery.round()}%',
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 20),
 
-                    // Topic Mastery - Radar-like visualization
+                    // Topic Mastery
                     const Text(
                       'Topic Mastery',
                       style: TextStyle(
@@ -260,24 +253,90 @@ class _ProgressAnalyticsPageState extends State<ProgressAnalyticsPage> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Peak Productivity
-                    _InsightCard(
-                      icon: Icons.bolt,
-                      iconColor: Colors.amber,
-                      title: 'Peak Productivity',
-                      subtitle:
-                          "You're most productive at $_peakTime. Focus on your hardest tasks then!",
-                    ),
-                    const SizedBox(height: 12),
-
                     // Subject progress list
                     if (_subjects.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const Text(
+                        'Subject Breakdown',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       ..._subjects.map((s) => _SubjectProgressCard(subject: s)),
+                    ],
+
+                    if (_subjects.isEmpty && _totalTasks == 0) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: AppColors.outline),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.bar_chart_outlined,
+                              size: 48,
+                              color: AppColors.textSecondary.withOpacity(0.4),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'No data yet',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Upload notes, generate a study plan, and take quizzes to see your progress here.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ],
                 ),
               ),
+      ),
+
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _navIndex,
+        selectedItemColor: AppColors.primary,
+        unselectedItemColor: AppColors.textSecondary,
+        type: BottomNavigationBarType.fixed,
+        onTap: _onNavTap,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.menu_book_outlined),
+            activeIcon: Icon(Icons.menu_book),
+            label: 'Library',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.bar_chart_outlined),
+            activeIcon: Icon(Icons.bar_chart),
+            label: 'Analytics',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings_outlined),
+            activeIcon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
       ),
     );
   }
@@ -339,16 +398,13 @@ class _PeriodSelector extends StatelessWidget {
 class _StatCard extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
-  final String label, value, change;
-  final bool positive;
+  final String label, value;
 
   const _StatCard({
     required this.icon,
     required this.iconColor,
     required this.label,
     required this.value,
-    required this.change,
-    required this.positive,
   });
 
   @override
@@ -382,24 +438,6 @@ class _StatCard extends StatelessWidget {
             value,
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(
-                positive ? Icons.arrow_upward : Icons.arrow_downward,
-                size: 14,
-                color: positive ? AppColors.success : AppColors.error,
-              ),
-              Text(
-                change,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: positive ? AppColors.success : AppColors.error,
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -423,16 +461,25 @@ class _TopicMasteryCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Simple radar-like visualization using CustomPaint
           SizedBox(
             height: 180,
-            child: CustomPaint(
-              size: const Size(180, 180),
-              painter: _RadarPainter(
-                subjects: subjects,
-                primaryColor: AppColors.primary,
-              ),
-            ),
+            child: subjects.isEmpty
+                ? Center(
+                    child: Text(
+                      'Generate a study plan to see mastery',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  )
+                : CustomPaint(
+                    size: const Size(180, 180),
+                    painter: _RadarPainter(
+                      subjects: subjects,
+                      primaryColor: AppColors.primary,
+                    ),
+                  ),
           ),
           const SizedBox(height: 16),
           Text(
@@ -442,7 +489,7 @@ class _TopicMasteryCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             subjects.isNotEmpty
-                ? 'Excellent progress in ${subjects.first.name}'
+                ? '${subjects.where((s) => s.progress >= 0.8).length} of ${subjects.length} subjects mastered'
                 : 'Upload materials to track mastery',
             style: const TextStyle(
               color: AppColors.textSecondary,
@@ -467,7 +514,6 @@ class _RadarPainter extends CustomPainter {
     final radius = min(size.width, size.height) / 2 - 20;
     final n = max(subjects.length, 3);
 
-    // Draw grid
     final gridPaint = Paint()
       ..color = Colors.grey.withOpacity(0.15)
       ..style = PaintingStyle.stroke
@@ -489,7 +535,6 @@ class _RadarPainter extends CustomPainter {
       canvas.drawPath(path, gridPaint);
     }
 
-    // Draw axes
     for (int i = 0; i < n; i++) {
       final angle = -pi / 2 + 2 * pi * i / n;
       canvas.drawLine(
@@ -502,7 +547,6 @@ class _RadarPainter extends CustomPainter {
       );
     }
 
-    // Draw data polygon
     if (subjects.isNotEmpty) {
       final dataPaint = Paint()
         ..color = primaryColor.withOpacity(0.3)
@@ -530,7 +574,6 @@ class _RadarPainter extends CustomPainter {
       canvas.drawPath(dataPath, dataPaint);
       canvas.drawPath(dataPath, borderPaint);
 
-      // Draw dots
       final dotPaint = Paint()
         ..color = primaryColor
         ..style = PaintingStyle.fill;
@@ -547,7 +590,6 @@ class _RadarPainter extends CustomPainter {
         );
       }
 
-      // Draw labels
       final textPainter = TextPainter(textDirection: TextDirection.ltr);
       for (int i = 0; i < min(subjects.length, n); i++) {
         final angle = -pi / 2 + 2 * pi * i / n;
@@ -590,6 +632,8 @@ class _QuizPerformanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasData = avgScore > 0;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -612,134 +656,88 @@ class _QuizPerformanceCard extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.arrow_upward, size: 14, color: AppColors.success),
-                  Text(
-                    '+${change.toStringAsFixed(1)} pts',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.success,
+              if (hasData && change != 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      change >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 14,
+                      color: change >= 0 ? AppColors.success : AppColors.error,
                     ),
-                  ),
-                ],
-              ),
+                    Text(
+                      '${change >= 0 ? '+' : ''}${change.toStringAsFixed(1)} pts',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: change >= 0
+                            ? AppColors.success
+                            : AppColors.error,
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            avgScore.toStringAsFixed(1),
+            hasData ? avgScore.toStringAsFixed(1) : '—',
             style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900),
           ),
-          const SizedBox(height: 16),
+          if (!hasData) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Take a quiz to see your scores here',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+          ],
+          if (hasData) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 80,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+                    .asMap()
+                    .entries
+                    .map((e) {
+                      final i = e.key;
+                      final label = e.value;
+                      final val = i < weeklyScores.length ? weeklyScores[i] : 0;
+                      final maxVal = weeklyScores.reduce(max);
+                      final h = maxVal > 0 ? (val / maxVal * 60) : 0.0;
 
-          // Bar chart
-          SizedBox(
-            height: 80,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: ['M', 'T', 'W', 'T', 'F', 'S', 'S'].asMap().entries.map(
-                (e) {
-                  final i = e.key;
-                  final label = e.value;
-                  final val = i < weeklyScores.length ? weeklyScores[i] : 0;
-                  final maxVal = weeklyScores.reduce(max);
-                  final h = maxVal > 0 ? (val / maxVal * 60) : 0.0;
-
-                  return Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Container(
-                          height: h,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(
-                              val > 70 ? 1 : 0.4,
+                      return Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              height: h,
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(
+                                  val > 70 ? 1 : 0.4,
+                                ),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
                             ),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
+                            const SizedBox(height: 6),
+                            Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ).toList(),
+                      );
+                    })
+                    .toList(),
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InsightCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title, subtitle;
-
-  const _InsightCard({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.outline),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: iconColor, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -790,7 +788,7 @@ class _SubjectProgressCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${(subject.progress * 100).round()}% ${subject.level}',
+                  '${(subject.progress * 100).round()}% • ${subject.level} • ${subject.completedTasks}/${subject.totalTasks} tasks',
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 12,
@@ -806,7 +804,13 @@ class _SubjectProgressCard extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: subject.progress,
                 backgroundColor: AppColors.outline,
-                valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+                valueColor: AlwaysStoppedAnimation(
+                  subject.progress >= 0.8
+                      ? AppColors.success
+                      : subject.progress >= 0.4
+                      ? AppColors.primary
+                      : AppColors.warning,
+                ),
                 minHeight: 6,
               ),
             ),
@@ -821,10 +825,14 @@ class _SubjectProgress {
   final String name;
   final double progress;
   final String level;
+  final int totalTasks;
+  final int completedTasks;
 
   _SubjectProgress({
     required this.name,
     required this.progress,
     required this.level,
+    this.totalTasks = 0,
+    this.completedTasks = 0,
   });
 }

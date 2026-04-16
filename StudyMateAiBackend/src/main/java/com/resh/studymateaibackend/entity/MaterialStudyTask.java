@@ -31,4 +31,10 @@ public class MaterialStudyTask {
 
     @Column(nullable = false)
     private boolean completed;
+
+    @Column(name = "task_type")
+    private String taskType;
+
+    @Column(name = "estimated_minutes")
+    private int estimatedMinutes;
 }

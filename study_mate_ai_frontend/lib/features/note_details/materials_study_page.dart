@@ -53,26 +53,90 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
     }
   }
 
-  /// Opens the topic selection page where user taps a topic → gets choice dialog
-  void _openQuizSelection() {
-    if (_overview == null || _overview!.importantTopics.isEmpty) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => QuizTopicSelectionPage(
-          materialId: widget.materialId,
-          materialTitle: widget.title,
-          topics: _overview!.importantTopics,
-        ),
-      ),
-    );
-  }
-
   void _goStudyPlan() {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => StudyPlanPage(materialId: widget.materialId),
+      ),
+    );
+  }
+
+  /// Show quiz choice modal when user taps a topic card
+  void _showQuizChoice(String topicName) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.outline,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Icon(Icons.quiz_outlined, size: 36, color: AppColors.primary),
+            const SizedBox(height: 12),
+            const Text(
+              'Generate Quiz',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Choose quiz scope',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+            ),
+            const SizedBox(height: 24),
+
+            // This topic only
+            _QuizChoiceTile(
+              icon: Icons.filter_alt_outlined,
+              title: topicName,
+              subtitle: '3-4 focused questions on this topic',
+              color: AppColors.primary,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => QuizPage(
+                      materialId: widget.materialId,
+                      topicLabel: topicName,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // All topics
+            _QuizChoiceTile(
+              icon: Icons.all_inclusive,
+              title: 'All Topics',
+              subtitle: 'Comprehensive quiz across all topics',
+              color: AppColors.tealAccent,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => QuizPage(materialId: widget.materialId),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -181,14 +245,14 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
         ),
       ],
 
-      // Important Topics — each card is tappable to go to quiz selection
+      // Important Topics — tap to open quiz choice modal
       if (o.importantTopics.isNotEmpty) ...[
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 24, 18, 0),
             child: AiSectionHeader(
               title: 'Important Topics',
-              subtitle: 'Tap a topic to start a quiz',
+              subtitle: 'Tap a topic to generate quiz',
               icon: Icons.bar_chart_rounded,
             ),
           ),
@@ -200,10 +264,7 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
               child: _TopicCard(
                 topic: o.importantTopics[i],
                 rank: i + 1,
-                onTap: () {
-                  // Tap topic → show quiz choice sheet directly
-                  _showQuizChoice(o.importantTopics[i].topic);
-                },
+                onTap: () => _showQuizChoice(o.importantTopics[i].topic),
               ),
             ),
             childCount: o.importantTopics.length,
@@ -211,7 +272,7 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
         ),
       ],
 
-      // Actions
+      // Study Plan action
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 28, 18, 8),
@@ -225,110 +286,17 @@ class _MaterialStudyPageState extends State<MaterialStudyPage> {
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18),
-          child: Row(
-            children: [
-              Expanded(
-                child: _ActionCard(
-                  icon: Icons.quiz_outlined,
-                  label: 'Take Quiz',
-                  description: 'Choose topic or all',
-                  color: AppColors.primary,
-                  onTap: _openQuizSelection,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ActionCard(
-                  icon: Icons.calendar_today_outlined,
-                  label: 'Study Plan',
-                  description: 'GA-optimized schedule',
-                  color: AppColors.tealAccent,
-                  onTap: _goStudyPlan,
-                ),
-              ),
-            ],
+          child: _ActionCard(
+            icon: Icons.calendar_today_outlined,
+            label: 'Generate Study Plan',
+            description: 'AI-optimized schedule based on your topics',
+            color: AppColors.tealAccent,
+            onTap: _goStudyPlan,
           ),
         ),
       ),
       const SliverToBoxAdapter(child: SizedBox(height: 32)),
     ];
-  }
-
-  void _showQuizChoice(String topicName) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.outline,
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Icon(Icons.quiz_outlined, size: 36, color: AppColors.primary),
-            const SizedBox(height: 12),
-            const Text(
-              'Generate Quiz',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'How would you like to be quizzed?',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
-            ),
-            const SizedBox(height: 24),
-
-            // This topic only
-            _QuizChoiceTile(
-              icon: Icons.filter_alt_outlined,
-              title: 'This Topic Only',
-              subtitle: '$topicName — 3-4 focused questions',
-              color: AppColors.primary,
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => QuizPage(
-                      materialId: widget.materialId,
-                      topicLabel: topicName,
-                    ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-
-            // All topics
-            _QuizChoiceTile(
-              icon: Icons.all_inclusive,
-              title: 'All Topics',
-              subtitle: 'Comprehensive quiz grouped by topic',
-              color: AppColors.tealAccent,
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => QuizPage(materialId: widget.materialId),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -587,7 +555,6 @@ class _FlashCardState extends State<_FlashCard> {
   }
 }
 
-/// Topic card — the ENTIRE card is tappable (no separate quiz button)
 class _TopicCard extends StatelessWidget {
   final TopicPriorityItem topic;
   final int rank;
@@ -701,7 +668,7 @@ class _ActionCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: AppColors.outline),
         ),
-        child: Column(
+        child: Row(
           children: [
             Container(
               width: 48,
@@ -712,19 +679,30 @@ class _ActionCard extends StatelessWidget {
               ),
               child: Icon(icon, color: color, size: 24),
             ),
-            const SizedBox(height: 12),
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              description,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
+            Icon(Icons.chevron_right, color: color, size: 22),
           ],
         ),
       ),

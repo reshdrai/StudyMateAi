@@ -58,7 +58,6 @@ public class MaterialAiService {
 
         System.out.println("AI: Parsed " + flashcards.size() + " flashcards, " + topics.size() + " topics");
 
-        // Save
         MaterialAnalysis analysis = getOrCreateAnalysis(material);
         analysis.setRawOutput(objectMapper.writeValueAsString(Map.of(
                 "keyPointsResponse", keyPointsResponse,
@@ -79,15 +78,15 @@ public class MaterialAiService {
                 .build();
     }
 
-    // ========== QUIZ (supports topic selection) ==========
+    // ========== QUIZ (supports attemptNumber for different questions) ==========
 
     public QuizResponseDto generateQuiz(Long materialId, User user) throws Exception {
-        return generateQuizForTopic(materialId, user, "ALL", null, 5);
+        return generateQuizForTopic(materialId, user, "ALL", null, 5, 1);
     }
 
     public QuizResponseDto generateQuizForTopic(Long materialId, User user,
                                                 String topicLabel, String subtopicLabel,
-                                                int maxQuestions) throws Exception {
+                                                int maxQuestions, int attemptNumber) throws Exception {
         Material material = getOwnedMaterial(materialId, user);
         String cleanedText = getCleanMaterialText(material);
 
@@ -110,6 +109,11 @@ public class MaterialAiService {
 
         List<QuizQuestionDto> questions = parseQuizQuestions(quizResponse);
 
+        // Apply attempt offset to get different questions each time
+        if (attemptNumber > 1 && questions.size() > 1) {
+            questions = shuffleQuestionsForAttempt(questions, attemptNumber, materialId);
+        }
+
         analysis.setQuestions(objectMapper.writeValueAsString(questions));
         analysis.setAnalyzedAt(LocalDateTime.now());
         materialAnalysisRepository.save(analysis);
@@ -121,6 +125,40 @@ public class MaterialAiService {
                 .materialId(material.getId())
                 .questions(questions)
                 .build();
+    }
+
+    /**
+     * Shuffle and rotate questions based on attempt number so each attempt
+     * gets a different set/order of questions.
+     */
+    private List<QuizQuestionDto> shuffleQuestionsForAttempt(
+            List<QuizQuestionDto> questions, int attemptNumber, Long materialId) {
+
+        // Use materialId + attemptNumber as seed for deterministic but different shuffles
+        long seed = materialId * 1000L + attemptNumber * 37L;
+        Random rng = new Random(seed);
+
+        List<QuizQuestionDto> shuffled = new ArrayList<>(questions);
+        Collections.shuffle(shuffled, rng);
+
+        // Also rotate options within each question for variety
+        List<QuizQuestionDto> result = new ArrayList<>();
+        for (QuizQuestionDto q : shuffled) {
+            List<String> opts = new ArrayList<>(q.getOptions());
+            String correctAnswer = q.getAnswer();
+
+            // Shuffle options
+            Collections.shuffle(opts, rng);
+
+            result.add(QuizQuestionDto.builder()
+                    .question(q.getQuestion())
+                    .answer(correctAnswer)
+                    .topic(q.getTopic())
+                    .options(opts)
+                    .build());
+        }
+
+        return result;
     }
 
     // ========== QUIZ SUBMIT ==========
@@ -212,14 +250,9 @@ public class MaterialAiService {
     // RESPONSE PARSING
     // ═══════════════════════════════════════
 
-    /**
-     * Parse flashcards from /generate_keypoints response.
-     * Response: { "key_points": [...], "flashcards": [{"front":"...", "back":"..."}] }
-     */
     private List<FlashcardDto> parseFlashcards(Map<String, Object> resp) {
         List<FlashcardDto> result = new ArrayList<>();
 
-        // Direct flashcards
         if (resp.get("flashcards") instanceof List<?> list) {
             for (Object item : list) {
                 if (item instanceof Map<?, ?> m) {
@@ -230,7 +263,6 @@ public class MaterialAiService {
             }
         }
 
-        // Fallback: key_points as flashcards
         if (result.isEmpty() && resp.get("key_points") instanceof List<?> list) {
             for (Object item : list) {
                 if (item instanceof Map<?, ?> m) {
@@ -247,17 +279,9 @@ public class MaterialAiService {
         return result;
     }
 
-    /**
-     * Parse important topics from /rank_importance response.
-     * Response: { "important_topics": ["Democracy", "Core Concepts", ...], "important_subtopics": [...] }
-     *
-     * FIXED: Build TopicPriorityDto directly from the list.
-     * Priority assigned by position: first third = HIGH, second = MEDIUM, rest = LOW.
-     */
     private List<TopicPriorityDto> parseImportantTopics(Map<String, Object> resp) {
         List<TopicPriorityDto> result = new ArrayList<>();
 
-        // Get ranked topic names
         List<String> topicNames = new ArrayList<>();
         if (resp.get("important_topics") instanceof List<?> list) {
             for (Object item : list) {
@@ -266,7 +290,6 @@ public class MaterialAiService {
             }
         }
 
-        // Get subtopics
         List<String> subtopicNames = new ArrayList<>();
         if (resp.get("important_subtopics") instanceof List<?> list) {
             for (Object item : list) {
@@ -275,12 +298,10 @@ public class MaterialAiService {
             }
         }
 
-        // Build TopicPriorityDto for each topic
         int total = topicNames.size();
         for (int i = 0; i < total; i++) {
             String name = topicNames.get(i);
 
-            // Priority by ranking position
             String priority;
             if (total <= 2) {
                 priority = "HIGH";
@@ -292,10 +313,8 @@ public class MaterialAiService {
                 priority = "LOW";
             }
 
-            // Score decreasing from top
             double score = (total - i) * 2.0;
 
-            // Match subtopics that contain the topic name (or are the same)
             List<String> matchedSubs = new ArrayList<>();
             String nameLower = name.toLowerCase();
             for (String sub : subtopicNames) {
@@ -318,9 +337,6 @@ public class MaterialAiService {
         return result;
     }
 
-    /**
-     * Parse quiz questions from /generate_quiz response.
-     */
     private List<QuizQuestionDto> parseQuizQuestions(Map<String, Object> resp) {
         List<QuizQuestionDto> result = new ArrayList<>();
         if (!(resp.get("questions") instanceof List<?> list)) return result;

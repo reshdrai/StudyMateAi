@@ -1,52 +1,102 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-
-import '../model/home_summary.dart';
 import '../../../services/token_storage.dart';
 import '../../../services/api_config.dart';
 
+class UpcomingTask {
+  final int id;
+  final String title;
+  final String description;
+  final String subjectTag;
+  final String timeLabel;
+  final int? materialId;
+  final String taskType; // READ, QUIZ, REVIEW, DEEP_REVIEW
+
+  UpcomingTask({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.subjectTag,
+    required this.timeLabel,
+    this.materialId,
+    this.taskType = 'READ',
+  });
+
+  factory UpcomingTask.fromJson(Map<String, dynamic> json) {
+    return UpcomingTask(
+      id: (json['id'] ?? 0) as int,
+      title: (json['title'] ?? '').toString(),
+      description: (json['description'] ?? '').toString(),
+      subjectTag: (json['subjectTag'] ?? 'STUDY').toString(),
+      timeLabel: (json['timeLabel'] ?? '').toString(),
+      materialId: json['materialId'] as int?,
+      taskType: (json['taskType'] ?? 'READ').toString(),
+    );
+  }
+}
+
+class HomeSummary {
+  final String userName;
+  final int completedTasks;
+  final int totalTasks;
+  final String progressText;
+  final UpcomingTask? nextTask;
+  final List<UpcomingTask> upcomingTasks;
+  final String aiTip;
+
+  HomeSummary({
+    required this.userName,
+    required this.completedTasks,
+    required this.totalTasks,
+    required this.progressText,
+    this.nextTask,
+    this.upcomingTasks = const [],
+    required this.aiTip,
+  });
+
+  double get progressRatio =>
+      totalTasks == 0 ? 0.0 : completedTasks / totalTasks;
+
+  factory HomeSummary.fromJson(Map<String, dynamic> json) {
+    final nextTaskJson = json['nextTask'] as Map<String, dynamic>?;
+    final upcomingJson = (json['upcomingTasks'] as List?) ?? [];
+    final aiTipJson = json['aiTip'] as Map<String, dynamic>?;
+
+    return HomeSummary(
+      userName: (json['userName'] ?? 'Student').toString(),
+      completedTasks: (json['completedTasks'] ?? 0) as int,
+      totalTasks: (json['totalTasks'] ?? 0) as int,
+      progressText: (json['progressText'] ?? '0% Done').toString(),
+      nextTask: nextTaskJson != null
+          ? UpcomingTask.fromJson(nextTaskJson)
+          : null,
+      upcomingTasks: upcomingJson
+          .map((e) => UpcomingTask.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
+      aiTip: aiTipJson != null ? (aiTipJson['message'] ?? '').toString() : '',
+    );
+  }
+}
+
 class HomeRepository {
-  String get baseUrl => ApiConfig.baseUrl;
+  String get _baseUrl => '${ApiConfig.baseUrl}/api/home';
 
-  Future<HomeSummary> getHomeSummary() async {
-    try {
-      final token = await TokenStorage.getToken();
+  Future<Map<String, String>> _headers() async {
+    final token = await TokenStorage.getToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
 
-      print("========== HOME API CALL ==========");
-      print("BASE URL: $baseUrl");
-      print("TOKEN: $token");
+  Future<HomeSummary> getSummary() async {
+    final res = await http
+        .get(Uri.parse('$_baseUrl/summary'), headers: await _headers())
+        .timeout(const Duration(seconds: 15));
 
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/api/home/summary'),
-            headers: {
-              'Content-Type': 'application/json',
-              if (token != null && token.isNotEmpty)
-                'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(const Duration(seconds: 10));
-
-      print("STATUS CODE: ${response.statusCode}");
-      print("RESPONSE BODY: ${response.body}");
-
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) {
-          return HomeSummary.fromJson(decoded);
-        }
-        return HomeSummary.fallback();
-      }
-
-      if (response.statusCode == 401) {
-        print("ERROR: Unauthorized - token missing or invalid");
-        return HomeSummary.fallback();
-      }
-
-      return HomeSummary.fallback();
-    } catch (e) {
-      print("EXCEPTION IN HOME API: $e");
-      return HomeSummary.fallback();
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return HomeSummary.fromJson(jsonDecode(res.body));
     }
+    throw Exception('Home summary failed: ${res.statusCode}');
   }
 }

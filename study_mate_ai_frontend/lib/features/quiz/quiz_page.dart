@@ -5,12 +5,21 @@ import '../shared/ai_widgets.dart';
 import '../note_details/study_ai_repository.dart';
 import '../note_details/study_models.dart';
 import '../study_plan/study_plan_page.dart';
+import '../study_plan/study_plan_repository.dart';
 
 class QuizPage extends StatefulWidget {
   final int materialId;
   final String? topicLabel; // null = all topics
+  final int? schedulerTaskId; // if launched from study plan
+  final int attemptNumber; // 1st, 2nd, 3rd attempt for different questions
 
-  const QuizPage({super.key, required this.materialId, this.topicLabel});
+  const QuizPage({
+    super.key,
+    required this.materialId,
+    this.topicLabel,
+    this.schedulerTaskId,
+    this.attemptNumber = 1,
+  });
 
   @override
   State<QuizPage> createState() => _QuizPageState();
@@ -18,6 +27,7 @@ class QuizPage extends StatefulWidget {
 
 class _QuizPageState extends State<QuizPage> {
   final _repo = StudyAiRepository();
+  final _planRepo = StudyPlanRepository();
   bool _loading = true;
   QuizResponse? _quiz;
   int _current = 0;
@@ -37,14 +47,17 @@ class _QuizPageState extends State<QuizPage> {
     try {
       QuizResponse data;
       if (widget.topicLabel != null) {
-        // Request 3-4 questions per topic
         data = await _repo.generateQuizForTopic(
           widget.materialId,
           widget.topicLabel!,
           maxQuestions: 4,
+          attemptNumber: widget.attemptNumber,
         );
       } else {
-        data = await _repo.generateQuiz(widget.materialId);
+        data = await _repo.generateQuiz(
+          widget.materialId,
+          attemptNumber: widget.attemptNumber,
+        );
       }
       if (!mounted) return;
       setState(() {
@@ -78,6 +91,15 @@ class _QuizPageState extends State<QuizPage> {
         _submitted = true;
         _result = r;
       });
+
+      // Auto-complete the scheduler task if launched from study plan
+      if (widget.schedulerTaskId != null) {
+        try {
+          await _planRepo.toggleTask(widget.schedulerTaskId!, true);
+        } catch (_) {
+          // Silently fail - task completion is secondary
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -95,9 +117,11 @@ class _QuizPageState extends State<QuizPage> {
           title: Text('Quiz: $_topicDisplay'),
           backgroundColor: AppColors.background,
         ),
-        body: const Center(
+        body: Center(
           child: AiProcessingIndicator(
-            message: 'Generating quiz',
+            message: widget.attemptNumber > 1
+                ? 'Generating new questions (Attempt ${widget.attemptNumber})'
+                : 'Generating quiz',
             subMessage: 'Creating questions from your notes',
           ),
         ),
@@ -137,6 +161,32 @@ class _QuizPageState extends State<QuizPage> {
         title: Text('Quiz: $_topicDisplay'),
         backgroundColor: AppColors.background,
         elevation: 0,
+        actions: [
+          if (widget.attemptNumber > 1)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Attempt #${widget.attemptNumber}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -183,7 +233,7 @@ class _QuizPageState extends State<QuizPage> {
               ),
             ),
 
-            // Question + options - FIXED: wrapped in Expanded + SingleChildScrollView
+            // Question + options
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(18),
@@ -294,7 +344,6 @@ class _QuizPageState extends State<QuizPage> {
                         ),
                       );
                     }),
-                    // Extra bottom padding so content doesn't hide behind nav
                     const SizedBox(height: 20),
                   ],
                 ),
@@ -368,12 +417,12 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
-  // ══════════════ QUIZ RESULTS SCREEN (matches your screenshot) ══════════════
   Widget _resultScreen() {
     final r = _result!;
     final good = r.scorePercent >= 60;
     final totalQ = r.totalQuestions;
     final correctQ = r.correctAnswers;
+    final nextAttempt = widget.attemptNumber + 1;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -382,7 +431,8 @@ class _QuizPageState extends State<QuizPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: () => Navigator.pop(context),
+          // Pop back, passing true to indicate quiz was completed
+          onPressed: () => Navigator.pop(context, true),
         ),
         actions: [
           IconButton(icon: const Icon(Icons.share_outlined), onPressed: () {}),
@@ -443,13 +493,47 @@ class _QuizPageState extends State<QuizPage> {
             ),
 
             const SizedBox(height: 20),
+
+            // Scheduler task auto-completed badge
+            if (widget.schedulerTaskId != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.success.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      color: AppColors.success,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Study plan task auto-completed',
+                        style: TextStyle(
+                          color: AppColors.success,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             Text(
               good ? 'Great job!' : 'Keep practicing!',
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 6),
             Text(
-              "You've completed the quiz on $_topicDisplay",
+              "Attempt #${widget.attemptNumber} on $_topicDisplay",
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: AppColors.textSecondary,
@@ -469,12 +553,7 @@ class _QuizPageState extends State<QuizPage> {
                       '${(totalQ * 45 ~/ 60)}:${(totalQ * 45 % 60).toString().padLeft(2, '0')}',
                 ),
                 _StatChip(label: 'CORRECT', value: '$correctQ/$totalQ'),
-                _StatChip(
-                  label: 'RANK',
-                  value: good
-                      ? '#1'
-                      : '#${(100 - r.scorePercent.round()) ~/ 10 + 1}',
-                ),
+                _StatChip(label: 'ATTEMPT', value: '#${widget.attemptNumber}'),
               ],
             ),
 
@@ -613,22 +692,24 @@ class _QuizPageState extends State<QuizPage> {
               const SizedBox(height: 20),
             ],
 
-            // Action buttons
+            // Retake with different questions
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () {
-                  setState(() {
-                    _submitted = false;
-                    _result = null;
-                    _answers.clear();
-                    _current = 0;
-                    _loading = true;
-                  });
-                  _load();
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => QuizPage(
+                        materialId: widget.materialId,
+                        topicLabel: widget.topicLabel,
+                        attemptNumber: nextAttempt,
+                      ),
+                    ),
+                  );
                 },
                 icon: const Icon(Icons.refresh),
-                label: const Text('Review Mistakes'),
+                label: Text('Retake Quiz (Attempt #$nextAttempt)'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -649,8 +730,8 @@ class _QuizPageState extends State<QuizPage> {
                         StudyPlanPage(materialId: widget.materialId),
                   ),
                 ),
-                icon: const Icon(Icons.auto_awesome_outlined),
-                label: const Text('Deep Dive with AI'),
+                icon: const Icon(Icons.calendar_today_outlined),
+                label: const Text('View Study Plan'),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
@@ -661,8 +742,8 @@ class _QuizPageState extends State<QuizPage> {
             ),
             const SizedBox(height: 12),
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Maybe later'),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Done'),
             ),
             const SizedBox(height: 24),
           ],

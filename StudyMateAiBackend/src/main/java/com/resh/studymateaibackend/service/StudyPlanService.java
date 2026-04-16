@@ -62,10 +62,10 @@ public class StudyPlanService {
         );
 
         // Persist the plan
-        persistPlan(material, schedule);
+        MaterialStudyPlan savedPlan = persistPlan(material, schedule);
 
-        // Build response
-        return scheduleToResponse(material.getId(), schedule);
+        // Build response using DB IDs (not GA IDs)
+        return existingPlanToResponse(material.getId(), savedPlan);
     }
 
     /**
@@ -92,7 +92,6 @@ public class StudyPlanService {
      */
     @Transactional
     public Map<String, Object> reschedule(Long materialId, User user) throws Exception {
-        // This effectively calls generatePlan which already handles missed tasks
         return generatePlan(materialId, user);
     }
 
@@ -170,7 +169,6 @@ public class StudyPlanService {
         for (MaterialStudyTask task : plan.getTasks()) {
             if (task.isCompleted()) continue;
 
-            // Parse date from dayLabel if available, or use plan generation date
             LocalDate taskDate = parseDayDate(task.getDayLabel(), plan.getGeneratedAt());
 
             if (taskDate != null && taskDate.isBefore(today)) {
@@ -178,7 +176,7 @@ public class StudyPlanService {
                         task.getTitle(),
                         extractTopicFromTitle(task.getTitle()),
                         task.getDescription(),
-                        30 // default estimate
+                        30
                 ));
             }
         }
@@ -189,12 +187,10 @@ public class StudyPlanService {
     private LocalDate parseDayDate(String dayLabel, LocalDateTime planGenerated) {
         if (dayLabel == null) return null;
 
-        // Try parsing "2025-04-09" format
         try {
             return LocalDate.parse(dayLabel);
         } catch (Exception ignored) {}
 
-        // Try parsing "Day N" format relative to plan generation
         try {
             if (dayLabel.toLowerCase().startsWith("day ")) {
                 int dayNum = Integer.parseInt(dayLabel.substring(4).trim());
@@ -209,7 +205,6 @@ public class StudyPlanService {
 
     private String extractTopicFromTitle(String title) {
         if (title == null) return "General";
-        // Titles like "Read: Topic Name" or "Quiz: Topic Name"
         int colonIdx = title.indexOf(':');
         if (colonIdx > 0 && colonIdx < title.length() - 1) {
             return title.substring(colonIdx + 1).trim();
@@ -218,14 +213,15 @@ public class StudyPlanService {
     }
 
     /**
-     * Persist the GA schedule to database.
+     * Persist the GA schedule to database and return the saved plan entity.
      */
-    private void persistPlan(Material material, StudySchedule schedule) {
+    private MaterialStudyPlan persistPlan(Material material, StudySchedule schedule) {
         // Delete existing plan
         materialStudyPlanRepository.findByMaterialId(material.getId())
                 .ifPresent(existing -> {
                     existing.getTasks().clear();
                     materialStudyPlanRepository.delete(existing);
+                    materialStudyPlanRepository.flush();
                 });
 
         // Create new plan
@@ -255,48 +251,18 @@ public class StudyPlanService {
         }
 
         plan.setTasks(tasks);
-        materialStudyPlanRepository.save(plan);
+        MaterialStudyPlan savedPlan = materialStudyPlanRepository.save(plan);
 
         material.setProcessingStatus("PLAN_READY");
         materialRepository.save(material);
+
+        return savedPlan;
     }
 
-    private Map<String, Object> scheduleToResponse(Long materialId, StudySchedule schedule) {
-        List<Map<String, Object>> days = new ArrayList<>();
-
-        for (StudySchedule.ScheduleDay day : schedule.days()) {
-            List<Map<String, Object>> tasks = new ArrayList<>();
-            for (StudySchedule.ScheduleTask task : day.tasks()) {
-                tasks.add(Map.of(
-                        "id", task.id(),
-                        "title", task.title(),
-                        "description", task.description() != null ? task.description() : "",
-                        "topicLabel", task.topicLabel(),
-                        "priority", task.priority(),
-                        "estimatedMinutes", task.estimatedMinutes(),
-                        "taskType", task.taskType(),
-                        "completed", task.completed()
-                ));
-            }
-
-            days.add(Map.of(
-                    "day", day.label(),
-                    "date", day.date(),
-                    "tasks", tasks,
-                    "totalMinutes", day.totalMinutes()
-            ));
-        }
-
-        return Map.of(
-                "materialId", materialId,
-                "days", days,
-                "hasPlan", true,
-                "fitnessScore", Math.round(schedule.fitnessScore() * 100.0) / 100.0
-        );
-    }
-
+    /**
+     * Build response from persisted plan — uses real DB IDs.
+     */
     private Map<String, Object> existingPlanToResponse(Long materialId, MaterialStudyPlan plan) {
-        // Group tasks by day
         Map<String, List<MaterialStudyTask>> grouped = plan.getTasks().stream()
                 .collect(Collectors.groupingBy(
                         MaterialStudyTask::getDayLabel,
@@ -305,6 +271,7 @@ public class StudyPlanService {
                 ));
 
         List<Map<String, Object>> days = new ArrayList<>();
+        int dayNumber = 1;
         for (Map.Entry<String, List<MaterialStudyTask>> entry : grouped.entrySet()) {
             List<Map<String, Object>> tasks = entry.getValue().stream()
                     .map(t -> {
@@ -314,28 +281,67 @@ public class StudyPlanService {
                         m.put("description", t.getDescription() != null ? t.getDescription() : "");
                         m.put("completed", t.isCompleted());
                         m.put("topicLabel", extractTopicFromTitle(t.getTitle()));
-                        m.put("priority", "MEDIUM");
-                        m.put("estimatedMinutes", 25);
-                        m.put("taskType", "READ");
+
+                        // Determine priority and task type from title
+                        String title = t.getTitle() != null ? t.getTitle().toLowerCase() : "";
+                        if (title.startsWith("deep review") || title.contains("rescheduled")) {
+                            m.put("priority", "HIGH");
+                        } else if (title.startsWith("read:") || title.startsWith("study:")) {
+                            m.put("priority", "MEDIUM");
+                        } else {
+                            m.put("priority", "MEDIUM");
+                        }
+
+                        if (title.startsWith("quiz:")) {
+                            m.put("taskType", "QUIZ");
+                            m.put("estimatedMinutes", 20);
+                        } else if (title.startsWith("review flashcards:")) {
+                            m.put("taskType", "REVIEW");
+                            m.put("estimatedMinutes", 15);
+                        } else if (title.startsWith("deep review:")) {
+                            m.put("taskType", "DEEP_REVIEW");
+                            m.put("estimatedMinutes", 30);
+                        } else if (title.startsWith("read:") || title.startsWith("study:")) {
+                            m.put("taskType", "READ");
+                            m.put("estimatedMinutes", 30);
+                        } else {
+                            m.put("taskType", "READ");
+                            m.put("estimatedMinutes", 25);
+                        }
+
                         return m;
                     })
                     .collect(Collectors.toList());
 
-            int totalMins = tasks.size() * 25;
+            int totalMins = tasks.stream()
+                    .mapToInt(t -> (int) t.getOrDefault("estimatedMinutes", 25))
+                    .sum();
 
             days.add(Map.of(
-                    "day", entry.getKey(),
+                    "day", "Day " + dayNumber,
                     "date", entry.getKey(),
                     "tasks", tasks,
                     "totalMinutes", totalMins
             ));
+            dayNumber++;
+        }
+
+        // Calculate fitness score from stored JSON if available
+        double fitnessScore = 0;
+        if (plan.getTasksJson() != null) {
+            try {
+                Map<String, Object> stored = objectMapper.readValue(plan.getTasksJson(), new TypeReference<>() {});
+                if (stored.containsKey("fitnessScore")) {
+                    fitnessScore = ((Number) stored.get("fitnessScore")).doubleValue();
+                }
+            } catch (Exception ignored) {}
         }
 
         return Map.of(
                 "materialId", materialId,
                 "days", days,
                 "hasPlan", true,
-                "fitnessScore", 0
+                "fitnessScore", Math.round(fitnessScore * 100.0) / 100.0
         );
     }
 

@@ -3,7 +3,7 @@ StudyMate AI Pipeline — Fast heuristic-based extraction.
 No model loading. Instant results. Quality output.
 Set STUDYMATE_USE_MODELS=true to enable LoRA models (slow).
 
-UPDATED: Quiz generation now produces 3-4 questions per topic by default.
+UPDATED: Quiz generation supports seed_offset for different questions per attempt.
 """
 
 import os
@@ -340,15 +340,18 @@ def summarize_selected_topic(extracted_text, chunks, topic_label, subtopic_label
 
 
 # ═══════════════════════════════════════════════════════
-# QUIZ GENERATION — UPDATED: 3-4 questions per topic
+# QUIZ GENERATION — supports seed_offset for different questions per attempt
 # ═══════════════════════════════════════════════════════
 
-def generate_quiz_for_topic(extracted_text, chunks, topic_label, subtopic_label=None, max_questions=5):
+def generate_quiz_for_topic(extracted_text, chunks, topic_label, subtopic_label=None,
+                            max_questions=5, seed_offset=1):
     """Generate quiz questions. If topic_label is 'ALL', generate from all topics.
     
-    UPDATED: Now generates 3-4 questions per topic by using multiple question
-    templates and extracting more sentences from each chunk.
+    seed_offset: Different value each attempt to produce different question selection/order.
     """
+
+    # Create a seeded random instance so each attempt is different but reproducible
+    rng = _random.Random(seed_offset * 42 + len(extracted_text) % 100)
 
     if topic_label.upper() == "ALL":
         selected = chunks
@@ -380,24 +383,40 @@ def generate_quiz_for_topic(extracted_text, chunks, topic_label, subtopic_label=
         "What is a fundamental concept of {topic}?",
     ]
 
-    questions = []
-    used_sents = set()  # Track used sentences to avoid duplicates
+    # Shuffle templates based on seed so different attempts use different template order
+    rng.shuffle(templates)
 
-    # For each selected chunk, try to generate MULTIPLE questions (up to 2 per chunk)
-    for chunk in sorted(selected, key=lambda x: x.get("importance_score", 0), reverse=True):
+    questions = []
+    used_sents = set()
+
+    # Shuffle selected chunks based on seed so different attempts pick different sentences
+    selected_shuffled = list(selected)
+    rng.shuffle(selected_shuffled)
+
+    # Sort by importance but with seed-based tiebreaker
+    selected_sorted = sorted(
+        selected_shuffled,
+        key=lambda x: (x.get("importance_score", 0) + rng.random() * 0.5),
+        reverse=True
+    )
+
+    for chunk in selected_sorted:
         if len(questions) >= max_questions:
             break
 
         topic = chunk["topic_label"]
         sub = chunk.get("subtopic_label", topic)
         sents = split_sentences(chunk["chunk_text"])
-        key = sorted([(s, _score_sentence(s)) for s in sents], key=lambda x: -x[1])
+
+        # Score and shuffle sentences with seed-based randomness
+        key = [(s, _score_sentence(s) + rng.random() * 1.5) for s in sents]
+        key.sort(key=lambda x: -x[1])
 
         questions_from_chunk = 0
         for sent, sc in key:
             if len(questions) >= max_questions:
                 break
-            if questions_from_chunk >= 2:  # Max 2 questions per chunk
+            if questions_from_chunk >= 2:
                 break
             if len(sent) < 30 or sc < 0:
                 continue
@@ -417,19 +436,18 @@ def generate_quiz_for_topic(extracted_text, chunks, topic_label, subtopic_label=
                       if s.strip().lower() != correct.lower()
                       and s.strip().lower() not in used_sents
                       and len(s.strip()) > 25]
-            _random.shuffle(others)
+            rng.shuffle(others)
             wrong_b = others[0][:160] if others else f"This is unrelated to {sub}."
             wrong_c = others[1][:160] if len(others) > 1 else f"This describes a different concept."
 
-            # Randomize option positions
+            # Randomize option positions using seeded rng
             options = [
                 ("A", correct),
                 ("B", wrong_b),
                 ("C", wrong_c),
             ]
-            _random.shuffle(options)
+            rng.shuffle(options)
 
-            # Find which letter has the correct answer
             correct_letter = "A"
             for letter, text in options:
                 if text == correct:
@@ -450,11 +468,11 @@ def generate_quiz_for_topic(extracted_text, chunks, topic_label, subtopic_label=
 
     # If we have fewer than 3 questions for a single topic, try harder
     if topic_label.upper() != "ALL" and len(questions) < 3 and selected:
-        # Try to get more questions from remaining sentences
-        for chunk in selected:
+        for chunk in selected_sorted:
             if len(questions) >= max_questions:
                 break
             sents = split_sentences(chunk["chunk_text"])
+            rng.shuffle(sents)  # Shuffle for variety
             for sent in sents:
                 if len(questions) >= max_questions:
                     break
@@ -470,14 +488,27 @@ def generate_quiz_for_topic(extracted_text, chunks, topic_label, subtopic_label=
 
                 others = [s.strip() for s in all_sents
                           if s.strip().lower() != correct.lower() and len(s.strip()) > 20]
-                _random.shuffle(others)
+                rng.shuffle(others)
+
+                options = [
+                    ("A", correct),
+                    ("B", others[0][:160] if others else f"Not related to {sub}."),
+                    ("C", others[1][:160] if len(others) > 1 else "A different concept entirely."),
+                ]
+                rng.shuffle(options)
+
+                correct_letter = "A"
+                for letter, text in options:
+                    if text == correct:
+                        correct_letter = letter
+                        break
 
                 questions.append({
                     "question": q_text,
-                    "option_a": correct,
-                    "option_b": others[0][:160] if others else f"Not related to {sub}.",
-                    "option_c": others[1][:160] if len(others) > 1 else "A different concept entirely.",
-                    "correct_option": "A",
+                    "option_a": options[0][1],
+                    "option_b": options[1][1],
+                    "option_c": options[2][1],
+                    "correct_option": correct_letter,
                     "explanation": f"From the {chunk['topic_label']} section.",
                     "topic_label": chunk["topic_label"],
                     "subtopic_label": sub,

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../shared/ai_widgets.dart';
+import '../quiz/quiz_page.dart';
+import '../study_plan/flashcard_study_page.dart';
 import 'study_plan_repository.dart';
 
 class StudyPlanPage extends StatefulWidget {
@@ -22,7 +24,6 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
   String? _error;
   int _selectedDayIdx = 0;
 
-  // Time slots for the visual schedule
   final _timeSlots = [
     '09:00',
     '10:00',
@@ -104,7 +105,82 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
     }
   }
 
-  // Map tasks to time slots
+  /// Launch quiz directly (for QUIZ-type tasks)
+  Future<void> _launchQuizForTask(PlanTask task) async {
+    final topicLabel = _extractTopicFromTitle(task.title);
+
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => QuizPage(
+          materialId: widget.materialId,
+          topicLabel: topicLabel,
+          schedulerTaskId: task.id,
+          attemptNumber: 1,
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      setState(() => task.completed = true);
+      _loadSilent();
+    }
+  }
+
+  /// Launch flashcard study page (for READ-type tasks)
+  /// Shows big flashcards → then auto-launches quiz → marks task done
+  Future<void> _launchFlashcardStudyForTask(PlanTask task) async {
+    final topicLabel = _extractTopicFromTitle(task.title);
+
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FlashcardStudyPage(
+          materialId: widget.materialId,
+          topic: topicLabel,
+          schedulerTaskId: task.id,
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      setState(() => task.completed = true);
+      _loadSilent();
+    }
+  }
+
+  Future<void> _loadSilent() async {
+    try {
+      final data = await _repo.getPlan(widget.materialId);
+      if (!mounted) return;
+      setState(() => _plan = data);
+    } catch (_) {}
+  }
+
+  String _extractTopicFromTitle(String title) {
+    // "Read: Topic Name" or "Quiz: Topic Name" → "Topic Name"
+    final colonIdx = title.indexOf(':');
+    if (colonIdx > 0 && colonIdx < title.length - 1) {
+      return title.substring(colonIdx + 1).trim();
+    }
+    return title;
+  }
+
+  void _handleTaskTap(PlanTask task) {
+    switch (task.taskType) {
+      case 'QUIZ':
+        _launchQuizForTask(task);
+        break;
+      case 'READ':
+      case 'REVIEW':
+      case 'DEEP_REVIEW':
+        _launchFlashcardStudyForTask(task);
+        break;
+      default:
+        _toggleTask(task);
+    }
+  }
+
   List<_SlotEntry> _buildTimeSlots(PlanDay day) {
     final entries = <_SlotEntry>[];
     for (int i = 0; i < day.tasks.length; i++) {
@@ -199,10 +275,6 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
     );
   }
 
-  // ════════════════════════════════════════
-  // Main planner view
-  // ════════════════════════════════════════
-
   Widget _buildPlannerView() {
     final plan = _plan!;
     final selectedDay = _selectedDayIdx < plan.days.length
@@ -215,15 +287,12 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
       appBar: _buildAppBar(),
       body: Column(
         children: [
-          // ── Week date strip ──
           _WeekStrip(
             days: plan.days,
             selectedIndex: _selectedDayIdx,
             startDate: now,
             onSelect: (i) => setState(() => _selectedDayIdx = i),
           ),
-
-          // ── Today's Focus header ──
           if (selectedDay != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -258,8 +327,6 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
                 ],
               ),
             ),
-
-          // ── Time-slotted tasks ──
           if (selectedDay != null)
             Expanded(
               child: selectedDay.tasks.isEmpty
@@ -290,6 +357,9 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
                           time: entry.time,
                           task: entry.task,
                           onToggle: () => _toggleTask(entry.task),
+                          onTapActive: entry.task.completed
+                              ? null
+                              : () => _handleTaskTap(entry.task),
                           onAccept: entry.task.isRescheduled
                               ? () => _toggleTask(entry.task)
                               : null,
@@ -312,9 +382,7 @@ class _SlotEntry {
   _SlotEntry({required this.time, required this.task});
 }
 
-// ════════════════════════════════════════════
-// Week strip (matches the reference design)
-// ════════════════════════════════════════════
+// ═══════════════════ Week Strip ═══════════════════
 
 class _WeekStrip extends StatelessWidget {
   final List<PlanDay> days;
@@ -384,7 +452,6 @@ class _WeekStrip extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  // Dot indicator
                   Container(
                     width: 6,
                     height: 6,
@@ -409,14 +476,13 @@ class _WeekStrip extends StatelessWidget {
   }
 }
 
-// ════════════════════════════════════════════
-// Time-slot task card
-// ════════════════════════════════════════════
+// ═══════════════════ Time Slot Card ═══════════════════
 
 class _TimeSlotCard extends StatelessWidget {
   final String time;
   final PlanTask task;
   final VoidCallback onToggle;
+  final VoidCallback? onTapActive;
   final VoidCallback? onAccept;
   final VoidCallback? onDismiss;
 
@@ -424,6 +490,7 @@ class _TimeSlotCard extends StatelessWidget {
     required this.time,
     required this.task,
     required this.onToggle,
+    this.onTapActive,
     this.onAccept,
     this.onDismiss,
   });
@@ -455,9 +522,19 @@ class _TimeSlotCard extends StatelessWidget {
     return switch (task.taskType) {
       'READ' => 'STUDY',
       'REVIEW' => 'REVIEW',
-      'QUIZ' => 'PRACTICE',
+      'QUIZ' => 'PRACTICE QUIZ',
       'DEEP_REVIEW' => 'FOCUS SESSION',
       _ => 'STUDY',
+    };
+  }
+
+  String _actionHint() {
+    return switch (task.taskType) {
+      'READ' => 'Tap to study flashcards',
+      'QUIZ' => 'Tap to start quiz',
+      'REVIEW' => 'Tap to review flashcards',
+      'DEEP_REVIEW' => 'Tap for focus session',
+      _ => 'Tap to open',
     };
   }
 
@@ -465,6 +542,7 @@ class _TimeSlotCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = _typeColor();
     final isDone = task.completed;
+    final isInteractive = !isDone && onTapActive != null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -472,7 +550,6 @@ class _TimeSlotCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Time label
             SizedBox(
               width: 48,
               child: Padding(
@@ -487,8 +564,6 @@ class _TimeSlotCard extends StatelessWidget {
                 ),
               ),
             ),
-
-            // Vertical line + dot
             SizedBox(
               width: 24,
               child: Column(
@@ -500,10 +575,6 @@ class _TimeSlotCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: isDone ? AppColors.success : color,
-                      border: Border.all(
-                        color: isDone ? AppColors.success : color,
-                        width: 2,
-                      ),
                     ),
                   ),
                   Expanded(
@@ -515,14 +586,11 @@ class _TimeSlotCard extends StatelessWidget {
                 ],
               ),
             ),
-
             const SizedBox(width: 8),
-
-            // Card
             Expanded(
               child: task.isRescheduled
                   ? _buildRescheduledCard(color)
-                  : _buildNormalCard(color, isDone),
+                  : _buildNormalCard(context, color, isDone, isInteractive),
             ),
           ],
         ),
@@ -530,9 +598,14 @@ class _TimeSlotCard extends StatelessWidget {
     );
   }
 
-  Widget _buildNormalCard(Color color, bool isDone) {
+  Widget _buildNormalCard(
+    BuildContext context,
+    Color color,
+    bool isDone,
+    bool isInteractive,
+  ) {
     return GestureDetector(
-      onTap: onToggle,
+      onTap: isInteractive ? onTapActive : (isDone ? null : onToggle),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(14),
@@ -544,7 +617,10 @@ class _TimeSlotCard extends StatelessWidget {
           border: Border.all(
             color: isDone
                 ? AppColors.success.withOpacity(0.3)
+                : isInteractive
+                ? color.withOpacity(0.4)
                 : AppColors.outline,
+            width: isInteractive ? 1.5 : 1,
           ),
           boxShadow: isDone
               ? []
@@ -556,110 +632,136 @@ class _TimeSlotCard extends StatelessWidget {
                   ),
                 ],
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Left color bar
-            Container(
-              width: 4,
-              height: 44,
-              decoration: BoxDecoration(
-                color: isDone ? AppColors.success : color,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 12),
-
-            // Icon
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: (isDone ? AppColors.success : color).withOpacity(0.10),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                _typeIcon(),
-                size: 18,
-                color: isDone ? AppColors.success : color,
-              ),
-            ),
-            const SizedBox(width: 12),
-
-            // Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _typeLabel(),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: isDone ? AppColors.textSecondary : color,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    task.title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: isDone
-                          ? AppColors.textSecondary
-                          : AppColors.textPrimary,
-                      decoration: isDone ? TextDecoration.lineThrough : null,
-                    ),
-                  ),
-                  if (task.description.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      task.description,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textSecondary.withOpacity(0.7),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            // Duration + checkbox
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            Row(
               children: [
-                Text(
-                  '${task.estimatedMinutes}m',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: isDone
-                        ? AppColors.textSecondary
-                        : AppColors.textPrimary,
+                Container(
+                  width: 4,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: isDone ? AppColors.success : color,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(height: 6),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 22,
-                  height: 22,
+                const SizedBox(width: 12),
+                Container(
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
-                    color: isDone ? AppColors.success : Colors.transparent,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: isDone ? AppColors.success : AppColors.outline,
-                      width: 2,
+                    color: (isDone ? AppColors.success : color).withOpacity(
+                      0.10,
                     ),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: isDone
-                      ? const Icon(Icons.check, color: Colors.white, size: 14)
-                      : null,
+                  child: Icon(
+                    _typeIcon(),
+                    size: 18,
+                    color: isDone ? AppColors.success : color,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _typeLabel(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: isDone ? AppColors.textSecondary : color,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        task.title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: isDone
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
+                          decoration: isDone
+                              ? TextDecoration.lineThrough
+                              : null,
+                        ),
+                      ),
+                      if (task.description.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          task.description,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary.withOpacity(0.7),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${task.estimatedMinutes}m',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: isDone
+                            ? AppColors.textSecondary
+                            : AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    if (isDone)
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: AppColors.success,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(
+                          Icons.check,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
+            if (isInteractive) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.play_arrow_rounded, color: color, size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      _actionHint(),
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -677,18 +779,10 @@ class _TimeSlotCard extends StatelessWidget {
           color: AppColors.warning.withOpacity(0.4),
           width: 1.5,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.warning.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // AI recommendation badge
           Row(
             children: [
               Icon(Icons.auto_awesome, size: 14, color: AppColors.warning),
@@ -718,8 +812,6 @@ class _TimeSlotCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-
-          // Accept / Dismiss buttons
           Row(
             children: [
               _SmallButton(

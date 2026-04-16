@@ -26,11 +26,19 @@ class StudyAiRepository {
     throw Exception('Overview failed: ${res.body}');
   }
 
-  /// Generate quiz for ALL topics
-  Future<QuizResponse> generateQuiz(int materialId) async {
+  /// Generate quiz for ALL topics, with attempt number for different questions
+  Future<QuizResponse> generateQuiz(
+    int materialId, {
+    int attemptNumber = 1,
+  }) async {
     final res = await http.post(
-      Uri.parse('$baseUrl/$materialId/quiz'),
+      Uri.parse('$baseUrl/$materialId/quiz/topic'),
       headers: await _headers(),
+      body: jsonEncode({
+        'topicLabel': 'ALL',
+        'maxQuestions': 5,
+        'attemptNumber': attemptNumber,
+      }),
     );
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return QuizResponse.fromJson(jsonDecode(res.body));
@@ -38,11 +46,12 @@ class StudyAiRepository {
     throw Exception('Quiz failed: ${res.body}');
   }
 
-  /// Generate quiz for a SPECIFIC topic
+  /// Generate quiz for a SPECIFIC topic with attempt number
   Future<QuizResponse> generateQuizForTopic(
     int materialId,
     String topicLabel, {
-    int maxQuestions = 5,
+    int maxQuestions = 4,
+    int attemptNumber = 1,
   }) async {
     final res = await http.post(
       Uri.parse('$baseUrl/$materialId/quiz/topic'),
@@ -50,6 +59,7 @@ class StudyAiRepository {
       body: jsonEncode({
         'topicLabel': topicLabel,
         'maxQuestions': maxQuestions,
+        'attemptNumber': attemptNumber,
       }),
     );
     if (res.statusCode >= 200 && res.statusCode < 300) {

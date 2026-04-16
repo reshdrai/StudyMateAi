@@ -41,7 +41,9 @@ dependencies:
   http: ^1.2.1
   shared_preferences: ^2.2.3
   # pubspec.yaml — add if not present:
-
+  firebase_core: ^4.2.0
+  firebase_messaging: ^16.0.2
+  flutter_local_notifications: ^19.4.2
   intl: ^0.19.0
   file_picker: ^8.0.0+1
 

@@ -53,6 +53,7 @@ class QuizRequest(BaseModel):
     # Also accept these alternate field names from Spring Boot
     text: Optional[str] = None
     num_questions: Optional[int] = None
+    attempt_number: Optional[int] = 1  # For different questions each attempt
 
 
 # -----------------------------
@@ -240,7 +241,6 @@ def generate_keypoints(req: NotesRequest):
         cleaned_text = _truncate_text(req.text)
         result = generate_keypoints_and_flashcards(cleaned_text)
 
-        # Ensure we always return valid structure
         if not result.get("key_points"):
             result["key_points"] = []
         if not result.get("flashcards"):
@@ -265,7 +265,6 @@ def rank_importance(req: NotesRequest):
         cleaned_text = _truncate_text(req.text)
         result = rank_topics_and_subtopics(cleaned_text)
 
-        # Ensure we always return valid structure
         if not result.get("important_topics"):
             result["important_topics"] = ["General Topic"]
         if not result.get("important_subtopics"):
@@ -305,7 +304,7 @@ def summarize_topic(req: TopicSummaryRequest):
 
 
 # -----------------------------
-# Quiz generation
+# Quiz generation (supports attempt_number for different questions)
 # -----------------------------
 
 @app.post("/generate_quiz", response_model=QuizResponse)
@@ -317,13 +316,13 @@ def generate_quiz(req: QuizRequest):
             raise HTTPException(status_code=400, detail="Extracted text is empty.")
 
         max_q = req.max_questions or req.num_questions or 5
+        attempt = req.attempt_number or 1
 
         # If chunks not provided, process the text first
         chunks_data = []
         if req.chunks:
             chunks_data = [c.model_dump() for c in req.chunks]
         else:
-            # Process text to get chunks
             structured = process_text_structure(extracted_text)
             chunks_data = structured.get("chunks", [])
 
@@ -333,9 +332,9 @@ def generate_quiz(req: QuizRequest):
             topic_label=req.topic_label or "General Topic",
             subtopic_label=req.subtopic_label,
             max_questions=max_q,
+            seed_offset=attempt,  # Pass attempt as seed offset
         )
 
-        # Ensure we always return valid structure
         if not result.get("questions"):
             result["questions"] = []
 

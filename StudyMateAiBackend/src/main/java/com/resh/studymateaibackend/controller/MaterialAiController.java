@@ -35,7 +35,7 @@ public class MaterialAiController {
         return ResponseEntity.ok(materialAiService.generateQuiz(id, userDetails.getUser()));
     }
 
-    /** Generate quiz for a SPECIFIC topic */
+    /** Generate quiz for a SPECIFIC topic, supports attemptNumber for different questions */
     @PostMapping("/{id}/quiz/topic")
     public ResponseEntity<QuizResponseDto> generateQuizForTopic(
             @PathVariable Long id,
@@ -45,9 +45,12 @@ public class MaterialAiController {
         String topicLabel = body.getOrDefault("topicLabel", "ALL").toString();
         String subtopicLabel = body.containsKey("subtopicLabel") ? body.get("subtopicLabel").toString() : null;
         int maxQuestions = body.containsKey("maxQuestions") ? Integer.parseInt(body.get("maxQuestions").toString()) : 5;
+        int attemptNumber = body.containsKey("attemptNumber") ? Integer.parseInt(body.get("attemptNumber").toString()) : 1;
 
         return ResponseEntity.ok(
-                materialAiService.generateQuizForTopic(id, userDetails.getUser(), topicLabel, subtopicLabel, maxQuestions)
+                materialAiService.generateQuizForTopic(
+                        id, userDetails.getUser(), topicLabel, subtopicLabel, maxQuestions, attemptNumber
+                )
         );
     }
 
